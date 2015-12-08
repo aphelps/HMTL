@@ -9,34 +9,7 @@
 #ifndef HMTLPROGRAMS_H
 #define HMTLPROGRAMS_H
 
-#include "TimeSync.h"
-extern TimeSync time;
-
-/*******************************************************************************
- * Function prototypes for a HMTL program and program configuration
- */
-typedef struct program_tracker program_tracker_t;
-
-typedef boolean (*hmtl_program_func)(output_hdr_t *outputs,
-                                     void *object,
-                                     program_tracker_t *tracker);
-typedef boolean (*hmtl_program_setup)(msg_program_t *msg,
-                                      program_tracker_t *tracker);
-
-typedef struct {
-  byte type;
-  hmtl_program_func program;
-  hmtl_program_setup setup;
-} hmtl_program_t;
-
-/* Structure used to track the state of currently active programs */
-#define PROGRAM_TRACKER_DONE 0x1
-struct program_tracker {
-  hmtl_program_t *program;
-  void *state;
-  byte flags;
-};
-
+#include "ProgramManager.h"
 
 /*******************************************************************************
  * HMTL Programs message formats

@@ -46,7 +46,7 @@ uint16_t hmtl_msg_size(output_hdr_t *output)
 /* Process an incoming message for this module */
 int
 hmtl_handle_output_msg(msg_hdr_t *msg_hdr,
-                       config_hdr_t *config_hdr, output_hdr_t *outputs[],
+                       byte num_outputs, output_hdr_t *outputs[],
                        void *objects[])
 {
   if (msg_hdr->type != MSG_TYPE_OUTPUT) {
@@ -58,8 +58,8 @@ hmtl_handle_output_msg(msg_hdr_t *msg_hdr,
   DEBUG4_VALUE("hmtl_handle_msg: type=", msg->type);
   DEBUG4_VALUELN(" out=", msg->output);
 
-  if (msg->output > config_hdr->num_outputs) {
-    DEBUG_ERR("hmtl_handle_msg: too many outputs");
+  if (msg->output >= num_outputs) {
+    DEBUG_ERR("hmtl_handle_msg: output over max");
     return -1;
   }
 

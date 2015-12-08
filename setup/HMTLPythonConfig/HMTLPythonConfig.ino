@@ -30,8 +30,11 @@
 #include "XBeeSocket.h"
 #include "Wire.h"
 
-
+#if defined(__AVR_ATmega32U4__)
+#define DEBUG_PIN 17
+#else
 #define DEBUG_PIN 13
+#endif
 
 config_hdr_t config_hdr;
 output_hdr_t *outputs[HMTL_MAX_OUTPUTS];
@@ -51,8 +54,19 @@ void setup()
   Serial.println(HMTL_READY); // Indicates that module is ready for commands
 }
 
+unsigned long last_ready = 0;
+void ready() {
+  unsigned long now = millis();
+  if (now - last_ready > 1000) {
+    Serial.println(HMTL_READY); // Indicates that module is ready for commands
+    last_ready = now;
+  }
+}
+
 void loop()
 {
+  ready();
+  //  Serial.println("Hello world");  // Print "Hello World" to the Serial Monitor
   if (receive_command()) {
     digitalWrite(DEBUG_PIN, HIGH);
   } else {
