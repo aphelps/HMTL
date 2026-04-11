@@ -242,7 +242,7 @@ typedef struct {
 } state_sequence_t;
 
 uint16_t program_sequence_fmt(byte *buffer, uint16_t buffsize,
-                              uint16_t address, uint8_t output);
+                              uint16_t address);
 int program_sequence_add(byte *buffer, uint8_t output, uint16_t duration, uint8_t value,
                          int offset);
 boolean program_sequence_init(msg_program_t *msg, program_tracker_t *tracker,

@@ -204,12 +204,11 @@ uint16_t hmtl_program_fade_fmt(byte *buffer, uint16_t buffsize,
  * Initialize a buffer for a sequence program, initially to an empty sequence
  * that can be added to later.
  */
-uint16_t program_sequence_fmt(byte *buffer, uint16_t buffsize, uint16_t address,
-                              uint8_t output) {
+uint16_t program_sequence_fmt(byte *buffer, uint16_t buffsize, uint16_t address) {
   msg_hdr_t *msg_hdr = (msg_hdr_t *)buffer;
   msg_program_t *msg_program = (msg_program_t *)(msg_hdr + 1);
 
-  hmtl_program_fmt(msg_program, output, HMTL_PROGRAM_SEQUENCE, buffsize);
+  hmtl_program_fmt(msg_program, HMTL_NO_OUTPUT, HMTL_PROGRAM_SEQUENCE, buffsize);
 
   hmtl_program_sequence_t *program = (hmtl_program_sequence_t *)msg_program->values;
   program->outputs[0] = HMTL_NO_OUTPUT;

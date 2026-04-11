@@ -48,6 +48,8 @@ ProgramManager::ProgramManager(output_hdr_t **_outputs,
     trackers[i] = NULL;
   }
 
+  no_output_tracker = NULL;
+
   DEBUG3_VALUE("ProgramManager: outputs:", num_outputs);
   DEBUG3_VALUELN(" programs:", num_programs);
 }
@@ -112,6 +114,28 @@ boolean ProgramManager::handle_msg(msg_program_t *msg) {
     /* This should be applied to all outputs that can handle the message type */
     starting_output = 0;
     stop_output = num_outputs;
+  } else if (msg->hdr.output == HMTL_NO_OUTPUT) {
+    /* Program manages its own outputs internally — not tied to a single output slot */
+    if (msg->type == HMTL_PROGRAM_NONE) {
+      free_no_output_tracker();
+      return true;
+    }
+    program_tracker_t *tracker;
+    if (functions[program].program == NULL) {
+      tracker = NULL;
+    } else {
+      free_no_output_tracker();
+      tracker = get_no_output_tracker();
+      tracker->program_index = program;
+      tracker->flags = 0x0;
+      tracker->output = NULL;
+      tracker->object = NULL;
+    }
+    boolean success = functions[program].setup(msg, tracker, NULL, NULL, this);
+    if (!success && tracker) {
+      free_no_output_tracker();
+    }
+    return success;
   } else if (msg->hdr.output > num_outputs) {
     DEBUG1_VALUELN("handle_msg: invalid output: ",
                    msg->hdr.output);
@@ -254,6 +278,30 @@ void ProgramManager::free_program_state(program_tracker_t *tracker) {
 
 
 /*
+ * Allocate the tracker for an output-less program
+ */
+program_tracker_t *ProgramManager::get_no_output_tracker() {
+  if (no_output_tracker == NULL) {
+    no_output_tracker = (program_tracker_t *)malloc(sizeof(program_tracker_t));
+  }
+  memset(no_output_tracker, 0, sizeof(program_tracker_t));
+  return no_output_tracker;
+}
+
+/*
+ * Free the tracker for an output-less program
+ */
+void ProgramManager::free_no_output_tracker() {
+  if (no_output_tracker != NULL && IS_RUNNING_PROGRAM(no_output_tracker)) {
+    if (no_output_tracker->flags & PROGRAM_DEALLOC_STATE) {
+      free_program_state(no_output_tracker);
+    }
+    memset(no_output_tracker, 0, sizeof(program_tracker_t));
+    no_output_tracker->program_index = NO_PROGRAM;
+  }
+}
+
+/*
  * Execute all configured program functions
  */
 uint16_t ProgramManager::run() {
@@ -274,6 +322,16 @@ uint16_t ProgramManager::run() {
                                                     tracker)) {
         updated |= (1 << i);
       }
+    }
+  }
+
+  /* Run the output-less program if active */
+  if (IS_RUNNING_PROGRAM(no_output_tracker)) {
+    if (no_output_tracker->flags & PROGRAM_TRACKER_DONE) {
+      free_no_output_tracker();
+    } else if (functions[no_output_tracker->program_index].program(
+                   NULL, NULL, no_output_tracker)) {
+      updated |= (1 << num_outputs);
     }
   }
 

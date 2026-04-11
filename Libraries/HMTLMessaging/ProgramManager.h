@@ -91,6 +91,10 @@ class ProgramManager {
   program_tracker_t* get_tracker(int index);
   void free_tracker(int index);
 
+  program_tracker_t *no_output_tracker; // tracker for HMTL_NO_OUTPUT programs
+  program_tracker_t *get_no_output_tracker();
+  void free_no_output_tracker();
+
   byte lookup_function(byte type);
 
   hmtl_program_t *functions;
