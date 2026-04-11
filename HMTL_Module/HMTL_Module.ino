@@ -157,6 +157,7 @@ hmtl_program_t program_functions[] = {
   { HMTL_PROGRAM_FADE, program_fade, program_fade_init },
   { HMTL_PROGRAM_SPARKLE, program_sparkle, program_sparkle_init },
   { HMTL_PROGRAM_CIRCULAR, program_circular, program_circular_init},
+  { HMTL_PROGRAM_SEQUENCE, program_sequence, program_sequence_init},
   { PROGRAM_BRIGHTNESS, NULL,  program_brightness },
   { PROGRAM_COLOR, NULL, program_color},
 

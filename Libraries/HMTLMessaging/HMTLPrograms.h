@@ -27,6 +27,7 @@
 #define HMTL_PROGRAM_SPARKLE      0x06
 #define HMTL_PROGRAM_SOUND_PIXELS 0x07
 #define HMTL_PROGRAM_CIRCULAR     0x08
+#define HMTL_PROGRAM_SEQUENCE     0x09
 
 #define PROGRAM_SENSOR_DATA       0x10 // Special handler for sensor data messages
 
@@ -223,6 +224,32 @@ boolean program_circular_init(msg_program_t *msg, program_tracker_t *tracker,
 boolean program_circular(output_hdr_t *output, void *object,
                         program_tracker_t *tracker);
 
+/*
+ * Program that triggers multiple value-type outputs in sequence
+ */
+#define HMTL_SEQUENCE_MAX 8
+typedef struct {
+  uint8_t outputs[HMTL_SEQUENCE_MAX];    //  8B
+  uint16_t durations[HMTL_SEQUENCE_MAX]; // 16B
+  uint8_t values[HMTL_SEQUENCE_MAX];     //  8B
+} hmtl_program_sequence_t;               // 32B
+typedef struct {
+  hmtl_program_sequence_t msg;  // Copy of message config
+  uint8_t current;              // Index of the current active step
+  unsigned long next_change;    // ms timestamp when to advance to next step
+  output_hdr_t **outputs;       // Pointer to manager's outputs array
+  void **objects;               // Pointer to manager's objects array
+} state_sequence_t;
+
+uint16_t program_sequence_fmt(byte *buffer, uint16_t buffsize,
+                              uint16_t address, uint8_t output);
+int program_sequence_add(byte *buffer, uint8_t output, uint16_t duration, uint8_t value,
+                         int offset);
+boolean program_sequence_init(msg_program_t *msg, program_tracker_t *tracker,
+                              output_hdr_t *output, void *object,
+                              ProgramManager *manager);
+boolean program_sequence(output_hdr_t *output, void *object,
+                         program_tracker_t *tracker);
 
 /*******************************************************************************
  * Additional helper messages

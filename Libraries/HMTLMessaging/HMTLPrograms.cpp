@@ -200,6 +200,61 @@ uint16_t hmtl_program_fade_fmt(byte *buffer, uint16_t buffsize,
   return HMTL_MSG_PROGRAM_LEN;
 }
 
+/*
+ * Initialize a buffer for a sequence program, initially to an empty sequence
+ * that can be added to later.
+ */
+uint16_t program_sequence_fmt(byte *buffer, uint16_t buffsize, uint16_t address,
+                              uint8_t output) {
+  msg_hdr_t *msg_hdr = (msg_hdr_t *)buffer;
+  msg_program_t *msg_program = (msg_program_t *)(msg_hdr + 1);
+
+  hmtl_program_fmt(msg_program, output, HMTL_PROGRAM_SEQUENCE, buffsize);
+
+  hmtl_program_sequence_t *program = (hmtl_program_sequence_t *)msg_program->values;
+  program->outputs[0] = HMTL_NO_OUTPUT;
+
+  hmtl_msg_fmt(msg_hdr, address, HMTL_MSG_PROGRAM_LEN, MSG_TYPE_OUTPUT);
+  return HMTL_MSG_PROGRAM_LEN;
+}
+
+/**
+ * Add an additional action to a sequence command
+ * @param buffer   Buffer to be modified
+ * @param output   Output for this action
+ * @param duration Time (in millis) to hold the indicated value
+ * @param value    Value to set the output
+ * @param offset   The position of the offset to be set (or negative value to search
+ *                   for the first unused offset)
+ * @return         The next available offset
+ */
+int program_sequence_add(byte *buffer, uint8_t output, uint16_t duration, uint8_t value,
+                         int offset) {
+  auto *program = (hmtl_program_sequence_t *)(buffer + sizeof(msg_hdr_t) + sizeof(msg_program_t));
+  if (offset < 0) {
+    for (offset = 0; offset < HMTL_SEQUENCE_MAX; offset++) {
+      if (program->outputs[offset] == HMTL_NO_OUTPUT) {
+        break;
+      }
+    }
+    if (offset == HMTL_SEQUENCE_MAX) {
+      return -1;
+    }
+  }
+
+  program->outputs[offset] = output;
+  program->durations[offset] = duration;
+  program->values[offset] = value;
+
+  offset++;
+  if (offset < HMTL_SEQUENCE_MAX) {
+    program->outputs[offset] = HMTL_NO_OUTPUT;
+  }
+
+  return offset;
+}
+
+
 
 /*******************************************************************************
  * Wrapper functions for sending HMTL program messages
@@ -687,4 +742,61 @@ boolean program_circular(output_hdr_t *output, void *object,
   }
 
   return false;
+}
+
+/*******************************************************************************
+ * Program that triggers multiple value outputs in sequence
+ *
+ * This is mainly intended for a sequence of fixed LEDs or poofers
+ */
+boolean program_sequence_init(msg_program_t *msg, program_tracker_t *tracker,
+                              output_hdr_t *output, void *object,
+                              ProgramManager *manager) {
+  DEBUG3_PRINT("Initializing sequence program");
+
+  state_sequence_t *state =
+    (state_sequence_t *)manager->get_program_state(tracker, sizeof(state_sequence_t));
+  memcpy(&state->msg, msg->values, sizeof(state->msg));
+
+  state->current     = 0;
+  state->next_change = timesync.ms();
+  state->outputs     = manager->outputs;
+  state->objects     = manager->objects;
+
+  DEBUG3_VALUELN(" steps:", HMTL_SEQUENCE_MAX);
+
+  return true;
+}
+
+boolean program_sequence(output_hdr_t *output, void *object,
+                         program_tracker_t *tracker) {
+  unsigned long now = timesync.ms();
+  state_sequence_t *state = (state_sequence_t *)tracker->state;
+
+  if (now < state->next_change) return false;
+
+  // Turn off the output for the step we just finished
+  uint8_t prev_out = state->msg.outputs[state->current];
+  uint8_t off_val[3] = {0, 0, 0};
+  hmtl_set_output_rgb(state->outputs[prev_out], state->objects[prev_out], off_val);
+
+  // Advance to next step, wrapping at end-of-list sentinel or max
+  state->current++;
+  if (state->current >= HMTL_SEQUENCE_MAX ||
+      state->msg.outputs[state->current] == HMTL_NO_OUTPUT) {
+    state->current = 0;
+  }
+
+  // Turn on the new current step
+  uint8_t cur_out = state->msg.outputs[state->current];
+  uint8_t v = state->msg.values[state->current];
+  uint8_t on_val[3] = {v, v, v};
+  hmtl_set_output_rgb(state->outputs[cur_out], state->objects[cur_out], on_val);
+  state->next_change = now + state->msg.durations[state->current];
+
+  DEBUG4_VALUE("Sequence step:", state->current);
+  DEBUG4_VALUE(" out:", cur_out);
+  DEBUG4_VALUELN(" next:", state->next_change);
+
+  return true;
 }
