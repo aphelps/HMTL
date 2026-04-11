@@ -545,6 +545,7 @@ class ProgramGeneric(Msg):
         "sparkle":     0x06,
         "soundpixels": 0x07,
         "circular":    0x08,
+        "sequence":    0x09,
 
         "brightness":  0x30,
         "color":       0x31,
@@ -680,6 +681,58 @@ class ProgramCircular(Msg):
                      address=address)
         programhdr = ProgramHdr(self.TYPE_NUM, output)
         return hdr.pack() + programhdr.pack() + self.pack()
+
+
+class ProgramSequence(Msg):
+    """Trigger multiple value-type outputs in sequence (e.g. fixed LEDs or poofers).
+    Uses HMTL_NO_OUTPUT (255) as the registered output since the program manages
+    its own outputs internally via stored references to the manager's output array.
+    """
+    TYPE = "PROGRAMSEQUENCE"
+    TYPE_NUM = 0x09
+    SEQUENCE_MAX = 8
+    HMTL_NO_OUTPUT = 255
+
+    # 8 x uint8 outputs | 8 x uint16 durations | 8 x uint8 values = 32 bytes
+    FORMAT = "<" + "B" * SEQUENCE_MAX + "H" * SEQUENCE_MAX + "B" * SEQUENCE_MAX
+
+    def __init__(self, steps):
+        """
+        steps: list of (output_index, duration_ms, value) tuples, up to SEQUENCE_MAX.
+               Remaining slots are padded with the HMTL_NO_OUTPUT sentinel.
+        """
+        if len(steps) > self.SEQUENCE_MAX:
+            raise Exception("Too many steps (%d), max is %d" % (len(steps), self.SEQUENCE_MAX))
+        self.steps = steps
+
+    def pack(self):
+        outputs   = [s[0] for s in self.steps]
+        durations = [s[1] for s in self.steps]
+        values    = [s[2] for s in self.steps]
+
+        # Pad to SEQUENCE_MAX with HMTL_NO_OUTPUT sentinel
+        while len(outputs) < self.SEQUENCE_MAX:
+            outputs.append(self.HMTL_NO_OUTPUT)
+            durations.append(0)
+            values.append(0)
+
+        return struct.pack(self.FORMAT, *outputs, *durations, *values)
+
+    def prepare_msg(self, address):
+        hdr = MsgHdr(length=MsgHdr.LENGTH + ProgramHdr.LENGTH,
+                     mtype=MSG_TYPE_OUTPUT,
+                     address=address)
+        # HMTL_NO_OUTPUT signals the program is not tied to a single output slot
+        programhdr = ProgramHdr(self.TYPE_NUM, self.HMTL_NO_OUTPUT)
+        return hdr.pack() + programhdr.pack() + self.pack()
+
+
+def get_program_sequence_msg(address, steps):
+    """Build a sequence program message.
+
+    steps: list of (output_index, duration_ms, value) tuples
+    """
+    return ProgramSequence(steps).prepare_msg(address)
 
 
 def get_program_level_value_msg(address, output):
