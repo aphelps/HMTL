@@ -65,6 +65,9 @@ def handle_args():
     group.add_option("--sparkle", action="store_const",
                       dest="commandtype", const="sparkle",
                       help="Sparkle program")
+    group.add_option("--sequence", action="store_const",
+                      dest="commandtype", const="sequence",
+                      help="Trigger outputs in sequence: -C out:dur_ms:val,out:dur_ms:val,...")
 
     group.add_option("-P", "--program", dest="program", type="string",
                       help="Send program of indicated type [%s]" % (','.join(HMTLprotocol.ProgramGeneric.NAME_MAP.keys())))
@@ -245,6 +248,18 @@ def main():
                                               [int(bg_r),int(bg_g),int(bg_b)],
                                                int(pattern), int(flags))
         msg = program.prepare_msg(options.hmtladdress, options.output)
+
+    elif (options.commandtype == "sequence"):
+        steps = []
+        for step_str in options.commandvalue.split(","):
+            parts = step_str.split(":")
+            if len(parts) != 3:
+                print("Each sequence step must be out:dur_ms:val, got: %s" % step_str)
+                sys.exit(1)
+            steps.append((int(parts[0]), int(parts[1]), int(parts[2])))
+        print("Sending SEQUENCE message. Address=%d steps=%s" %
+              (options.hmtladdress, steps))
+        msg = HMTLprotocol.get_program_sequence_msg(options.hmtladdress, steps)
 
     elif (options.commandtype == "program"):
         commandvalues = options.commandvalue.split(",") if options.commandvalue else None
