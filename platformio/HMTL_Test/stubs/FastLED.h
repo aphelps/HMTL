@@ -21,6 +21,9 @@ struct CRGB {
     // Simplified HSV→RGB: just grey
     CRGB(const CHSV& hsv) : b(hsv.v), g(hsv.v), r(hsv.v) {}
 
+    uint8_t& operator[](uint8_t idx)       { return raw[idx]; }
+    uint8_t  operator[](uint8_t idx) const { return raw[idx]; }
+
     CRGB& nscale8(uint8_t scale) {
         r = (uint8_t)((uint16_t)r * scale / 255);
         g = (uint8_t)((uint16_t)g * scale / 255);

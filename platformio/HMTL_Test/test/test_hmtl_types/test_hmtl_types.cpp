@@ -7,10 +7,11 @@
 #include "HMTLTypes.h"
 #include "HMTLMessaging.h"
 #include "HMTLPrograms.h"
+#include "Debug.h"
 
 extern unsigned long _mock_millis;
 
-void setUp()    { _mock_millis = 0; }
+void setUp()    { _mock_millis = 0; debug_log_begin_test(Unity.CurrentTestName); }
 void tearDown() {}
 
 // ---------------------------------------------------------------------------
