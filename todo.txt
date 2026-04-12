@@ -3,11 +3,4 @@ HMTL TODO LIST
 
 ** Add a config file that allows the serial interfaces to be named
 
-** Allow ProgramManager to handle programs that are not attached to a single
-   output (e.g. the sequence program which controls multiple outputs internally).
-   Currently handle_msg() rejects output indices > num_outputs, so programs
-   intended to manage their own set of outputs (using stored manager->outputs
-   references) have no valid output slot to register against.
-
-** Debug output in test code (platformio/HMTL_Test/stubs/Debug.h) should output to a local file on disk
 ** PixelUtil in test should write the values to a hex array in text

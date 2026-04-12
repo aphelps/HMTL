@@ -57,8 +57,14 @@
 extern "C" {
 #endif
 
-// Reset the in-memory line buffer and truncate the log file.
-// Call in test setUp() before the code under test runs.
+// Write a section-header separator to the log file and clear the in-memory
+// buffer.  Call in test setUp() with Unity.CurrentTestName so every test's
+// output is labelled in the file.
+void debug_log_begin_test(const char *name);
+
+// Mid-test reset: clears the in-memory buffer so later assertions only see
+// output produced after this call.  Writes a "--- reset ---" marker to the
+// file so the context is preserved.
 void debug_log_reset(void);
 
 // Redirect the log file (default: DEBUG_LOG_PATH, opened lazily).

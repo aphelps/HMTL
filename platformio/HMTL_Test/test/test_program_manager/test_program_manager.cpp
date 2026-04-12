@@ -55,6 +55,7 @@ static void make_program_msg(msg_program_t *msg, uint8_t output_idx,
 
 void setUp() {
     _mock_millis = 0;
+    debug_log_begin_test(Unity.CurrentTestName);
 
     memset(&rgb0, 0, sizeof(rgb0));
     memset(&rgb1, 0, sizeof(rgb1));

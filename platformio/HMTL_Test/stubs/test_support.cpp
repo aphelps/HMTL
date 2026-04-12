@@ -30,27 +30,50 @@ static std::string               s_log_path   = DEBUG_LOG_PATH;
 
 static void ensure_log_file() {
     if (!s_log_file) {
-        s_log_file = fopen(s_log_path.c_str(), "w");
+        // Append so successive test runs accumulate in one file.
+        s_log_file = fopen(s_log_path.c_str(), "a");
     }
+}
+
+static void write_separator(const char *label) {
+    ensure_log_file();
+    if (!s_log_file) return;
+    fprintf(s_log_file,
+            "\n"
+            "================================================================\n"
+            "  %s\n"
+            "================================================================\n",
+            label);
+    fflush(s_log_file);
 }
 
 extern "C" {
 
+// Called in setUp() with Unity.CurrentTestName — writes a section header to
+// the file and clears the in-memory buffer for the new test.
+void debug_log_begin_test(const char *name) {
+    s_log_lines.clear();
+    s_log_current.clear();
+    write_separator(name ? name : "(unknown test)");
+}
+
+// Mid-test reset: clears in-memory buffer so later assertions only see output
+// produced after this call.  Writes a brief marker so the file stays readable.
 void debug_log_reset() {
     s_log_lines.clear();
     s_log_current.clear();
-    // Truncate/recreate the log file so stale content from a prior test
-    // doesn't survive across setUp() calls.
+    ensure_log_file();
     if (s_log_file) {
-        fclose(s_log_file);
-        s_log_file = fopen(s_log_path.c_str(), "w");
+        fputs("--- reset ---\n", s_log_file);
+        fflush(s_log_file);
     }
 }
 
 void debug_log_open(const char *path) {
     if (s_log_file) fclose(s_log_file);
     s_log_path = path;
-    s_log_file = fopen(path, "w");
+    // Append mode: keep existing content from previous runs.
+    s_log_file = fopen(path, "a");
 }
 
 void debug_log_close() {
