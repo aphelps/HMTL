@@ -12,14 +12,17 @@ struct CHSV {
 };
 
 struct CRGB {
+    // Match real FastLED memory layout: raw[0]=r, raw[1]=g, raw[2]=b.
+    // hmtl_set_output_rgb passes .raw directly to setAllRGB(r,g,b), so the
+    // order must be RGB, not BGR.
     union {
-        struct { uint8_t b, g, r; };
+        struct { uint8_t r, g, b; };
         uint8_t raw[3];
     };
-    CRGB() : b(0), g(0), r(0) {}
-    CRGB(uint8_t r, uint8_t g, uint8_t b) : b(b), g(g), r(r) {}
-    // Simplified HSV→RGB: just grey
-    CRGB(const CHSV& hsv) : b(hsv.v), g(hsv.v), r(hsv.v) {}
+    CRGB() : r(0), g(0), b(0) {}
+    CRGB(uint8_t r, uint8_t g, uint8_t b) : r(r), g(g), b(b) {}
+    // Simplified HSV→RGB: map value to grey
+    CRGB(const CHSV& hsv) : r(hsv.v), g(hsv.v), b(hsv.v) {}
 
     uint8_t& operator[](uint8_t idx)       { return raw[idx]; }
     uint8_t  operator[](uint8_t idx) const { return raw[idx]; }
