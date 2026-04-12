@@ -1,20 +1,39 @@
-# HMTL top-level Makefile
+# HMTL Makefile
 #
 # Targets:
-#   make test          — run all tests (Track 1 + Track 2)
+#   make all           — build + test
+#   make build         — build HMTL_Module (default env: nano)
+#   make build-all     — build all platformio projects
+#   make test          — run all tests (Track 1 + Track 2 + Track 3)
 #   make test-python   — Track 1: Python emulator + unit tests
 #   make test-native   — Track 2: C++ firmware logic, PlatformIO native
-#   make test-simavr   — Track 3: Full AVR emulation (requires: brew install simavr)
+#   make test-simavr   — Track 3: AVR firmware build check (avr-gcc)
 
 PYTHON     ?= python3
 PIO        ?= pio
 PYTEST     ?= pytest
+ENV        ?= nano
 
 PYTHON_DIR := python
 NATIVE_DIR := platformio/HMTL_Test
-SIMAVR_DIR := platformio/HMTL_Module
+MODULE_DIR := platformio/HMTL_Module
 
-.PHONY: test test-python test-python-all test-native test-simavr
+.PHONY: all build build-all test test-python test-python-all test-native test-simavr
+
+all: build test
+
+build:
+	@echo "=== Building HMTL_Module ($(ENV)) ==="
+	cd $(MODULE_DIR) && $(PIO) run -e $(ENV)
+
+build-all:
+	@echo "=== Building all HMTL platformio projects ==="
+	cd platformio/HMTL_Module       && $(PIO) run -e nano
+	cd platformio/HMTL_Bringup      && $(PIO) run -e nano
+	cd platformio/HMTLPythonConfig  && $(PIO) run -e nano
+	cd platformio/HMTL_Command_CLI  && $(PIO) run -e nano
+	cd platformio/PooferTest        && $(PIO) run -e nano
+	cd platformio/TimeSyncExample   && $(PIO) run -e nano
 
 test: test-python test-native test-simavr
 
@@ -32,5 +51,5 @@ test-native:
 
 test-simavr:
 	@echo "=== Track 3: AVR firmware build check (avr-gcc) ==="
-	cd $(SIMAVR_DIR) && $(PIO) run -e simavr_nano
+	cd $(MODULE_DIR) && $(PIO) run -e simavr_nano
 	@echo "Note: to run tests inside simavr, install it first: brew install simavr"
