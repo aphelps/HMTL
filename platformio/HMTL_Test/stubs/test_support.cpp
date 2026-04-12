@@ -8,6 +8,7 @@
 #include "Arduino.h"
 #include "TimeSync.h"
 #include "FastLED.h"
+#include "PixelUtil.h"
 #include "EEPROM.h"
 #include "HMTLTypes.h"
 #include "HMTLMessaging.h"
@@ -150,6 +151,11 @@ void hmtl_set_output_rgb(output_hdr_t *output, void *object, uint8_t value[3]) {
             rgb->values[2] = value[2];
             break;
         }
+        case HMTL_OUTPUT_PIXELS: {
+            PixelUtil *pixels = (PixelUtil *)object;
+            if (pixels) pixels->setAllRGB(value[0], value[1], value[2]);
+            break;
+        }
         default:
             break;
     }
@@ -163,9 +169,10 @@ boolean hmtl_validate_header(config_hdr_t *hdr) {
 
 int hmtl_output_size(output_hdr_t *output) {
     switch (output->type) {
-        case HMTL_OUTPUT_VALUE: return sizeof(config_value_t);
-        case HMTL_OUTPUT_RGB:   return sizeof(config_rgb_t);
-        default:                return -1;
+        case HMTL_OUTPUT_VALUE:  return sizeof(config_value_t);
+        case HMTL_OUTPUT_RGB:    return sizeof(config_rgb_t);
+        case HMTL_OUTPUT_PIXELS: return sizeof(config_pixels_t);
+        default:                 return -1;
     }
 }
 
