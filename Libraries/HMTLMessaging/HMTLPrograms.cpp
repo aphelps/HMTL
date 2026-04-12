@@ -229,7 +229,15 @@ uint16_t program_sequence_fmt(byte *buffer, uint16_t buffsize, uint16_t address)
  */
 int program_sequence_add(byte *buffer, uint8_t output, uint16_t duration, uint8_t value,
                          int offset) {
-  auto *program = (hmtl_program_sequence_t *)(buffer + sizeof(msg_hdr_t) + sizeof(msg_program_t));
+  // Use msg_program->values (not sizeof(msg_program_t)) to match program_sequence_fmt's layout.
+  // Reject explicit out-of-bounds offsets before touching memory.
+  if (offset >= HMTL_SEQUENCE_MAX) {
+    return -1;
+  }
+
+  msg_hdr_t *hdr = (msg_hdr_t *)buffer;
+  msg_program_t *msg = (msg_program_t *)(hdr + 1);
+  auto *program = (hmtl_program_sequence_t *)msg->values;
   if (offset < 0) {
     for (offset = 0; offset < HMTL_SEQUENCE_MAX; offset++) {
       if (program->outputs[offset] == HMTL_NO_OUTPUT) {
@@ -758,9 +766,18 @@ boolean program_sequence_init(msg_program_t *msg, program_tracker_t *tracker,
   memcpy(&state->msg, msg->values, sizeof(state->msg));
 
   state->current     = 0;
-  state->next_change = timesync.ms();
   state->outputs     = manager->outputs;
   state->objects     = manager->objects;
+
+  // Immediately activate the first step so it is visible from the start.
+  // Set the timer to advance after the first step's duration.
+  uint8_t first_out = state->msg.outputs[0];
+  if (first_out != HMTL_NO_OUTPUT && first_out < manager->num_outputs) {
+    uint8_t v = state->msg.values[0];
+    uint8_t on_val[3] = {v, v, v};
+    hmtl_set_output_rgb(state->outputs[first_out], state->objects[first_out], on_val);
+  }
+  state->next_change = timesync.ms() + state->msg.durations[0];
 
   DEBUG3_VALUELN(" steps:", HMTL_SEQUENCE_MAX);
 

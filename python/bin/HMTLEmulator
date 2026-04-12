@@ -1,0 +1,105 @@
+#!/usr/bin/env python3 -u
+#
+# HMTL software emulator — run a virtual HMTL module from a JSON config file
+#
+# Interactive use:
+#   python bin/HMTLEmulator python/configs/BigCube.json
+#   # In another terminal, send commands with existing tools unchanged:
+#   python bin/HMTLClient --blink -C 500,255,0,0,500,0,0,0 -O 0 --tcpsocket
+#
+# Automated test use:
+#   python bin/HMTLEmulator config.json --port 4365 --control-port 4366 --virtual-time
+
+import sys
+import time
+import json
+
+from optparse import OptionParser
+import hmtl.HMTLprotocol as HMTLprotocol
+from hmtl.emulator.emulator import HMTLEmulator
+
+DEFAULT_PORT = HMTLprotocol.HMTL_PORT
+DEFAULT_CTRL_PORT = DEFAULT_PORT + 1
+
+
+def handle_args():
+    parser = OptionParser(usage="usage: %prog [options] config.json")
+    parser.add_option("-p", "--port", dest="port", type="int",
+                      default=DEFAULT_PORT,
+                      help="HMTL TCP port [default=%default]")
+    parser.add_option("-c", "--control-port", dest="control_port", type="int",
+                      default=None,
+                      help="Control port for virtual-time testing [default: port+1]")
+    parser.add_option("--virtual-time", dest="virtual_time", action="store_true",
+                      default=False,
+                      help="Run with virtual clock (for automated tests)")
+    parser.add_option("-a", "--address", dest="address", type="int",
+                      default=None,
+                      help="Override module address from config")
+    parser.add_option("-v", "--verbose", dest="verbose", action="store_true",
+                      default=False, help="Verbose output")
+    (options, args) = parser.parse_args()
+
+    if len(args) < 1:
+        parser.print_help()
+        sys.exit(1)
+
+    return options, args
+
+
+def print_state(emu):
+    state = emu.get_state()
+    print("  address: %d" % state["address"])
+    for i, out in enumerate(state["outputs"]):
+        print("  output[%d]: %s" % (i, out))
+
+
+def main():
+    options, args = handle_args()
+    config_path = args[0]
+
+    ctrl_port = options.control_port
+    if ctrl_port is None and options.virtual_time:
+        ctrl_port = options.port + 1
+
+    try:
+        emu = HMTLEmulator(config_path,
+                           address=options.address,
+                           verbose=options.verbose)
+    except Exception as e:
+        sys.exit("Failed to load config '%s': %s" % (config_path, e))
+
+    print("HMTL Emulator starting")
+    print("  config:  %s" % config_path)
+    print("  address: %d" % emu.address)
+    print("  outputs: %d" % len(emu.outputs))
+    for i, out in enumerate(emu.outputs):
+        print("    [%d] %s" % (i, out.state()))
+
+    if options.virtual_time:
+        print("  mode:    virtual-time (control port %d)" % ctrl_port)
+        emu.start(port=options.port, control_port=ctrl_port, virtual_time=True)
+        # In virtual-time mode, block here; the control server runs in background threads
+        print("  Ready — waiting for control connections on port %d" % ctrl_port)
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("\nExiting.")
+    else:
+        print("  mode:    real-time (HMTL port %d)" % options.port)
+        emu.start(port=options.port, virtual_time=False)
+        print("  Ready — send commands with HMTLClient --tcpsocket")
+        try:
+            prev_state = None
+            while True:
+                time.sleep(0.1)
+                state = emu.get_state()
+                if state != prev_state:
+                    print_state(emu)
+                    prev_state = state
+        except KeyboardInterrupt:
+            print("\nExiting.")
+
+
+main()

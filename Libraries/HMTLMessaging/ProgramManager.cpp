@@ -102,7 +102,8 @@ boolean ProgramManager::handle_msg(msg_program_t *msg) {
 
   /* Find the program to be executed */
   byte program = lookup_function(msg->type);
-  if (program == NO_PROGRAM) {
+  if (program == NO_PROGRAM && msg->type != HMTL_PROGRAM_NONE) {
+    /* HMTL_PROGRAM_NONE is a cancel — no function needed, let routing handle it */
     DEBUG1_VALUELN("handle_msg: invalid type: ", msg->type);
     return false;
   }
