@@ -51,6 +51,65 @@ There are python libraries provided for communicating with the modules and sever
 * [Scan.py](python/Scan.py): Send out polling commands via a command server to find all connected modules
 * [HMTLWebClient.py](python/HMTLWebClient.py): Present a web page to control modules connected to a command server
 
+Testing
+-------
+
+Build-time testing does not require a physical device. Three complementary approaches are available, in order of increasing fidelity:
+
+### Track 1 — Python emulator
+
+A software HMTL module that accepts the same messages as real hardware, loaded from any JSON config file in `python/configs/`. Useful for interactive development and automated protocol tests.
+
+**Prerequisites:** `pip install -e python/`
+
+```bash
+# Start the emulator with a config file
+python python/bin/HMTLEmulator python/configs/BigCube.json
+
+# In another terminal, send commands with the existing tools unchanged
+python python/bin/HMTLClient --blink -C 500,255,0,0,500,0,0,0 -O 0 --tcpsocket
+python python/bin/HMTLClient --sequence -C 0:500:255,1:300:128 --tcpsocket
+```
+
+Run automated integration tests:
+```bash
+cd python
+pytest hmtl/tests/test_emulator.py -v
+```
+
+### Track 2 — C++ unit tests (PlatformIO native)
+
+Tests pure firmware logic (message routing, program state machines, config validation) compiled for the desktop. No hardware or emulator required.
+
+**Prerequisites:** PlatformIO CLI (`pip install platformio`)
+
+```bash
+cd platformio/HMTL_Test
+pio test -e native
+```
+
+Tests live in `platformio/HMTL_Test/test/`. Arduino hardware dependencies are satisfied by thin stubs in `platformio/HMTL_Test/stubs/` so the library code compiles and runs on the host.
+
+### Track 3 — Full AVR firmware emulation (simavr)
+
+Runs the actual compiled ATmega328 firmware binary inside [simavr](https://github.com/buserror/simavr), exercising real AVR timers, interrupts, and EEPROM. PlatformIO handles building and launching automatically.
+
+**Prerequisites:** `brew install simavr` (macOS) or `apt install simavr` (Linux). macOS and Linux only.
+
+```bash
+cd platformio/HMTL_Module
+pio test -e simavr_nano
+```
+
+UART output from the firmware (including `DEBUG_*` messages) appears via simavr's pseudo-terminal. For GDB debugging:
+
+```bash
+simavr -g -m atmega328p .pio/build/simavr_nano/firmware.elf &
+avr-gdb -ex "target remote :1234" .pio/build/simavr_nano/firmware.elf
+```
+
+**Note:** RS485, XBee, and RFM69 peripherals have no simavr models and are disabled in the `simavr_nano` build via `-DDISABLE_RS485 -DDISABLE_XBEE`. ESP32 targets are not covered by Track 3.
+
 Configuration
 -------------
 

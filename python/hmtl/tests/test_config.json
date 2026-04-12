@@ -1,0 +1,16 @@
+{
+    "info": "Minimal config for emulator tests",
+    "header": {
+        "protocol_version": 3,
+        "hardware_version": 4,
+        "address": 1,
+        "device_id": 1,
+        "baud": 9600,
+        "flags": 0
+    },
+    "outputs": [
+        {"type": "value", "pin": 5, "value": 0},
+        {"type": "value", "pin": 6, "value": 0},
+        {"type": "rgb",   "pins": [9, 10, 11], "values": [0, 0, 0]}
+    ]
+}
