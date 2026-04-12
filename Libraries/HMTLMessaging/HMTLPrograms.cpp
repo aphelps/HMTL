@@ -8,7 +8,9 @@
 
 #include <Arduino.h>
 #include <HMTLTypes.h>
+#ifndef DISABLE_PIXELUTIL
 #include <PixelUtil.h>
+#endif
 
 #ifdef DEBUG_LEVEL_HMTLPROGRAMS
   #define DEBUG_LEVEL DEBUG_LEVEL_HMTLPROGRAMS
@@ -25,7 +27,15 @@
 
 #include "HMTLPrograms.h"
 
+#ifndef DISABLE_PIXELUTIL
 #include "PixelUtil.h"
+#else
+// Provide minimal pixel color helpers so blink/timed_change format functions
+// can still unpack packed uint32_t colors without the full PixelUtil library.
+static inline byte pixel_red(uint32_t c)   { return (c >> 16) & 0xFF; }
+static inline byte pixel_green(uint32_t c) { return (c >> 8)  & 0xFF; }
+static inline byte pixel_blue(uint32_t c)  { return  c        & 0xFF; }
+#endif
 #include "Socket.h"
 
 #include "TimeSync.h"
@@ -111,6 +121,7 @@ uint16_t hmtl_program_timed_change_fmt(byte *buffer, uint16_t buffsize,
   return HMTL_MSG_PROGRAM_LEN;
 }
 
+#ifndef DISABLE_PIXELUTIL
 /* Format a sparkle program message */
 uint16_t program_sparkle_fmt(byte *buffer, uint16_t buffsize,
                              uint16_t address, uint8_t output,
@@ -199,6 +210,8 @@ uint16_t hmtl_program_fade_fmt(byte *buffer, uint16_t buffsize,
   hmtl_msg_fmt(msg_hdr, address, HMTL_MSG_PROGRAM_LEN, MSG_TYPE_OUTPUT);
   return HMTL_MSG_PROGRAM_LEN;
 }
+
+#endif /* DISABLE_PIXELUTIL */
 
 /*
  * Initialize a buffer for a sequence program, initially to an empty sequence
@@ -450,6 +463,7 @@ boolean program_timed_change(output_hdr_t *output, void *object,
   return changed;
 }
 
+#ifndef DISABLE_PIXELUTIL
 /*******************************************************************************
  * Program to fade between two values
  */
@@ -750,6 +764,7 @@ boolean program_circular(output_hdr_t *output, void *object,
 
   return false;
 }
+#endif /* DISABLE_PIXELUTIL */
 
 /*******************************************************************************
  * Program that triggers multiple value outputs in sequence

@@ -9,8 +9,10 @@
 #ifndef HMTLPROGRAMS_H
 #define HMTLPROGRAMS_H
 
+#ifndef DISABLE_PIXELUTIL
 #include "FastLED.h"
 #include "PixelUtil.h"
+#endif
 #include "ProgramManager.h"
 
 /*******************************************************************************
@@ -103,6 +105,7 @@ boolean program_timed_change_init(msg_program_t *msg,
 boolean program_timed_change(output_hdr_t *output, void *object,
                              program_tracker_t *tracker);
 
+#ifndef DISABLE_PIXELUTIL
 /*
  * Program which sets a color and fades to another over a set period
  */
@@ -223,6 +226,7 @@ boolean program_circular_init(msg_program_t *msg, program_tracker_t *tracker,
                               ProgramManager *manager);
 boolean program_circular(output_hdr_t *output, void *object,
                         program_tracker_t *tracker);
+#endif /* DISABLE_PIXELUTIL */
 
 /*
  * Program that triggers multiple value-type outputs in sequence
