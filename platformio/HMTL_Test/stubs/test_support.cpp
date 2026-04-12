@@ -11,6 +11,92 @@
 #include "EEPROM.h"
 #include "HMTLTypes.h"
 #include "HMTLMessaging.h"
+#include "Debug.h"
+
+#include <vector>
+#include <string>
+#include <cstdio>
+#include <cstring>
+#include <cstdlib>
+
+// ---------------------------------------------------------------------------
+// Debug log — in-memory line buffer + log file
+// ---------------------------------------------------------------------------
+
+static std::vector<std::string> s_log_lines;
+static std::string               s_log_current;
+static FILE                     *s_log_file   = NULL;
+static std::string               s_log_path   = DEBUG_LOG_PATH;
+
+static void ensure_log_file() {
+    if (!s_log_file) {
+        s_log_file = fopen(s_log_path.c_str(), "w");
+    }
+}
+
+extern "C" {
+
+void debug_log_reset() {
+    s_log_lines.clear();
+    s_log_current.clear();
+    // Truncate/recreate the log file so stale content from a prior test
+    // doesn't survive across setUp() calls.
+    if (s_log_file) {
+        fclose(s_log_file);
+        s_log_file = fopen(s_log_path.c_str(), "w");
+    }
+}
+
+void debug_log_open(const char *path) {
+    if (s_log_file) fclose(s_log_file);
+    s_log_path = path;
+    s_log_file = fopen(path, "w");
+}
+
+void debug_log_close() {
+    if (s_log_file) { fclose(s_log_file); s_log_file = NULL; }
+}
+
+int debug_log_count() {
+    return (int)s_log_lines.size();
+}
+
+const char *debug_log_line(int n) {
+    if (n < 0 || n >= (int)s_log_lines.size()) return NULL;
+    return s_log_lines[n].c_str();
+}
+
+int debug_log_contains(const char *substr) {
+    for (const std::string &line : s_log_lines) {
+        if (line.find(substr) != std::string::npos) return 1;
+    }
+    // Also check any partial line not yet terminated with a newline
+    if (s_log_current.find(substr) != std::string::npos) return 1;
+    return 0;
+}
+
+void _debug_emit(const char *s, int newline) {
+    ensure_log_file();
+    s_log_current += s;
+    if (s_log_file) fputs(s, s_log_file);
+    if (newline) {
+        if (s_log_file) { fputc('\n', s_log_file); fflush(s_log_file); }
+        s_log_lines.push_back(s_log_current);
+        s_log_current.clear();
+    }
+}
+
+void debug_err_state(int code) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "[ERR_STATE:0x%02x]", code);
+    _debug_emit(buf, 1);
+    // Real implementation loops forever; in tests just record it.
+}
+
+void debug_print_memory()                          {}
+void print_hex_buffer(const char *, int)           {}
+
+} // extern "C"
 
 // ---------------------------------------------------------------------------
 // Globals required by firmware code
