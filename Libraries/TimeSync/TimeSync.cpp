@@ -74,7 +74,7 @@ unsigned long TimeSync::s() {
   return ms() / 1000;
 }
 
-void TimeSync::sendSyncMsg(Socket *socket, socket_addr_t target, byte phase, int adjustment = 0) {
+void TimeSync::sendSyncMsg(Socket *socket, socket_addr_t target, byte phase, unsigned long adjustment = 0) {
   if (socket->send_data_size < HMTL_MSG_SIZE(msg_time_sync_t)) {
     DEBUG1_VALUELN("sync buf too small: ", socket->send_data_size);
     //    DEBUG_ERR("startsync to small");
@@ -148,6 +148,10 @@ boolean TimeSync::synchronize(Socket *socket,
             // Reply with ack
             sendSyncMsg(socket, source, TIMESYNC_ACK);
             state = STATE_AWAITING_SET;
+            break;
+          }
+          default: {
+            DEBUG1_VALUE("SYNC ignored, in-progress state:", state);
             break;
           }
         }
