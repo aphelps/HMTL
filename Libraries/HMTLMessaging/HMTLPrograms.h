@@ -243,6 +243,7 @@ typedef struct {
   unsigned long next_change;    // ms timestamp when to advance to next step
   output_hdr_t **outputs;       // Pointer to manager's outputs array
   void **objects;               // Pointer to manager's objects array
+  uint8_t num_outputs;          // Length of the outputs/objects arrays
 } state_sequence_t;
 
 uint16_t program_sequence_fmt(byte *buffer, uint16_t buffsize,

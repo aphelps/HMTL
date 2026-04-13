@@ -63,6 +63,7 @@ ProgramManager::ProgramManager(output_hdr_t **_outputs,
 byte ProgramManager::lookup_output_by_type(uint8_t type, uint8_t nth) {
   byte count = 0;
   for (byte i = 0; i < num_outputs; i++) {
+    if (outputs[i] == NULL) continue;
     if (outputs[i]->type == type) {
       if (count == nth) {
         return i;
@@ -137,7 +138,7 @@ boolean ProgramManager::handle_msg(msg_program_t *msg) {
       free_no_output_tracker();
     }
     return success;
-  } else if (msg->hdr.output > num_outputs) {
+  } else if (msg->hdr.output >= num_outputs) {
     DEBUG1_VALUELN("handle_msg: invalid output: ",
                    msg->hdr.output);
     return false;

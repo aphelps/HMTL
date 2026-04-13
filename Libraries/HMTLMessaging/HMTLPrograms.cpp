@@ -592,7 +592,7 @@ boolean program_sparkle_init(msg_program_t *msg,
   // Combine the bg and sparkle threshold to get the true bgthreshold
   state->msg.bg_threshold += state->msg.sparkle_threshold;
 
-  state->last_change_ms = millis();
+  state->last_change_ms = timesync.ms();
 
   return true;
 }
@@ -710,7 +710,7 @@ boolean program_circular_init(msg_program_t *msg, program_tracker_t *tracker,
 
   state->current = 0;
   state->color_position = 0;
-  state->last_change_ms = millis();
+  state->last_change_ms = timesync.ms();
 
   return true;
 }
@@ -745,14 +745,14 @@ boolean program_circular(output_hdr_t *output, void *object,
           break;
         }
         case 2: {
-
-          break;
+          /* Not yet implemented — leave pixel unchanged */
+          continue;
         }
         default: {
-          /* Scale the color based so that the center LED is brightest */
-          byte scale = 255 -
-                       abs(state->msg.length / 2 - i) *
-                       (255 / (state->msg.length / 2));
+          /* Scale the color so that the center LED is brightest */
+          byte half = state->msg.length / 2;
+          if (half == 0) half = 1;  // guard against length == 1
+          byte scale = 255 - abs(half - i) * (255 / half);
           color = CRGB(CHSV(state->color_position, 255, 255)).nscale8(scale);
           break;
         }
@@ -785,6 +785,7 @@ boolean program_sequence_init(msg_program_t *msg, program_tracker_t *tracker,
   state->current     = 0;
   state->outputs     = manager->outputs;
   state->objects     = manager->objects;
+  state->num_outputs = manager->num_outputs;
 
   // Immediately activate the first step so it is visible from the start.
   // Set the timer to advance after the first step's duration.
@@ -810,8 +811,10 @@ boolean program_sequence(output_hdr_t *output, void *object,
 
   // Turn off the output for the step we just finished
   uint8_t prev_out = state->msg.outputs[state->current];
-  uint8_t off_val[3] = {0, 0, 0};
-  hmtl_set_output_rgb(state->outputs[prev_out], state->objects[prev_out], off_val);
+  if (prev_out != HMTL_NO_OUTPUT && prev_out < state->num_outputs) {
+    uint8_t off_val[3] = {0, 0, 0};
+    hmtl_set_output_rgb(state->outputs[prev_out], state->objects[prev_out], off_val);
+  }
 
   // Advance to next step, wrapping at end-of-list sentinel or max
   state->current++;
@@ -822,9 +825,11 @@ boolean program_sequence(output_hdr_t *output, void *object,
 
   // Turn on the new current step
   uint8_t cur_out = state->msg.outputs[state->current];
-  uint8_t v = state->msg.values[state->current];
-  uint8_t on_val[3] = {v, v, v};
-  hmtl_set_output_rgb(state->outputs[cur_out], state->objects[cur_out], on_val);
+  if (cur_out != HMTL_NO_OUTPUT && cur_out < state->num_outputs) {
+    uint8_t v = state->msg.values[state->current];
+    uint8_t on_val[3] = {v, v, v};
+    hmtl_set_output_rgb(state->outputs[cur_out], state->objects[cur_out], on_val);
+  }
   state->next_change = now + state->msg.durations[state->current];
 
   DEBUG4_VALUE("Sequence step:", state->current);

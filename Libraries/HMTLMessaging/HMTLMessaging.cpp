@@ -170,8 +170,8 @@ hmtl_serial_getmsg(byte *msg, byte msg_len, byte *offset_ptr)
   boolean complete = false;
 
   while (Serial.available()) {
-    if (offset > msg_len) {
-      /* Offset has exceed the buffer size, start fresh */
+    if (offset >= msg_len) {
+      /* Offset has exceeded the buffer size, start fresh */
       offset = 0;
       DEBUG_ERR("hmtl_serial_update: exceed max msg len");
     }
@@ -285,7 +285,7 @@ uint16_t hmtl_rgb_fmt(byte *buffer, uint16_t buffsize,
   msg_rgb->values[2] = b;
 
   hmtl_msg_fmt(msg_hdr, address, HMTL_MSG_RGB_LEN, MSG_TYPE_OUTPUT);
-  return HMTL_MSG_VALUE_LEN;
+  return HMTL_MSG_RGB_LEN;
 }
 
 /* Format a poll response message */
@@ -423,19 +423,17 @@ msg_sensor_data_t* hmtl_next_sensor(msg_hdr_t *msg, msg_sensor_data_t *current) 
     }
   }
 
-  DEBUG1_COMMAND(
-    if (msg->type != MSG_TYPE_SENSOR) {
-      DEBUG1_VALUELN("Not a sensor msg:", msg->type);
+  if (msg->type != MSG_TYPE_SENSOR) {
+    DEBUG1_VALUELN("Not a sensor msg:", msg->type);
+    return NULL;
+  }
+
+  if (next) {
+    if (next + sizeof (msg_sensor_data_t) + ((msg_sensor_data_t*)next)->data_len > (byte *)msg + msg->length) {
+      DEBUG1_PRINTLN("Invalid sensor message");
       next = NULL;
     }
-
-    if (next) {
-      if (next + sizeof (msg_sensor_data_t) + ((msg_sensor_data_t*)next)->data_len > (byte *)msg + msg->length) {
-        DEBUG1_PRINTLN("Invalid sensor message");
-        next = NULL;
-      }
-    }
-                 );
+  }
 
   return (msg_sensor_data_t*)next;
 }
