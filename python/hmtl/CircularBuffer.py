@@ -36,9 +36,9 @@ class CircularBuffer:
 
     def clear(self):
         try:
-            while self.queue.get(False):
-                pass
-        except Queue.Empty as e:
+            while True:
+                self.queue.get(False)
+        except Queue.Empty:
             pass
 
     #
@@ -47,10 +47,10 @@ class CircularBuffer:
     def __iter__(self):
         return self
 
-    def next(self):
+    def __next__(self):
         try:
             return self.queue.get(False)
-        except Queue.Empty as e:
+        except Queue.Empty:
             raise StopIteration
 
     #

@@ -81,10 +81,11 @@ class HMTLSerial():
         start_wait = time.time()
         while True:
             item = self.get_message()
-            if item.data == HMTLprotocol.HMTL_CONFIG_ACK:
-                return True
-            if item.data == HMTLprotocol.HMTL_CONFIG_FAIL:
-                raise HMTLConfigException("Configuration command failed")
+            if item is not None:
+                if item.data == HMTLprotocol.HMTL_CONFIG_ACK:
+                    return True
+                if item.data == HMTLprotocol.HMTL_CONFIG_FAIL:
+                    raise HMTLConfigException("Configuration command failed")
             if (time.time() - start_wait) > timeout:
                 raise Exception("Timed out waiting for ACK signal")
 
