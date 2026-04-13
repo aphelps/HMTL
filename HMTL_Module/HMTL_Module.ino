@@ -63,7 +63,7 @@
 #define RS485_SEND_BUFFER_SIZE RS485_BUFFER_TOTAL(64)
 
 RS485Socket rs485;
-byte rs485_data_buffer[RS485_BUFFER_TOTAL(RS485_SEND_BUFFER_SIZE)];
+byte rs485_data_buffer[RS485_SEND_BUFFER_SIZE];
 #endif
 
 #ifdef USE_XBEE
@@ -71,7 +71,7 @@ byte rs485_data_buffer[RS485_BUFFER_TOTAL(RS485_SEND_BUFFER_SIZE)];
 #include "XBeeSocket.h"
 XBeeSocket xbee;
 #define XBEE_SEND_BUFFER_SIZE XBEE_BUFFER_TOTAL(64)
-byte xbee_data_buffer[RS485_BUFFER_TOTAL(XBEE_SEND_BUFFER_SIZE)];
+byte xbee_data_buffer[XBEE_SEND_BUFFER_SIZE];
 #endif
 
 #ifdef USE_RFM69
@@ -103,7 +103,7 @@ byte rfm69_data_buffer[RFM69_SEND_BUFFER_SIZE];
 TCPSocket tcpSocket;
 
 #define WIFI_SEND_BUFFER_SIZE TCP_BUFFER_TOTAL(64)
-byte wifi_data_buffer[TCP_BUFFER_TOTAL(WIFI_SEND_BUFFER_SIZE)];
+byte wifi_data_buffer[WIFI_SEND_BUFFER_SIZE];
 #endif
 
 /* Period between updating */
@@ -119,7 +119,7 @@ unsigned long statusUpdateTime = 0;
 #endif
 
 
-Socket *sockets[MAX_SOCKETS] = { NULL, NULL };
+Socket *sockets[MAX_SOCKETS] = { NULL, NULL, NULL, NULL };
 
 config_hdr_t config;
 output_hdr_t *outputs[HMTL_MAX_OUTPUTS];
@@ -347,11 +347,12 @@ void additional_loop() {
 #ifdef ENABLE_PUSH_BUTTON
   //Use a push button to override a particular output
   static byte prev_value = HIGH;
-  if (get_button_value() != prev_value) {
-    prev_value = get_button_value();
+  byte button_value = get_button_value();
+  if (button_value != prev_value) {
+    prev_value = button_value;
     DEBUG1_VALUELN("Push button to ", prev_value);
     if (prev_value == LOW) {
-      uint32_t value = (prev_value == LOW ? pixel_color(255,255,255) : 0);
+      uint32_t value = pixel_color(255,255,255);
       hmtl_program_timed_change_fmt(sockets[0]->send_buffer,
                              sockets[0]->send_data_size,
                              config.address, (byte)3,
@@ -607,9 +608,12 @@ boolean program_sound_pixels(output_hdr_t *output, void *object,
       }
 
       // Map the value of the channel compared to its max into a byte
-      uint8_t value = (uint8_t)map(sound_data[channel],
-                                   0, state->max[channel],
-                                   0, 255);
+      uint8_t value = 0;
+      if (state->max[channel] > 0) {
+        value = (uint8_t)map(sound_data[channel],
+                             0, state->max[channel],
+                             0, 255);
+      }
 
       // Set the led value for this channel
       pixels->setDistinct(channel, value);

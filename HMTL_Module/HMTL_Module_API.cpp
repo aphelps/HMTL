@@ -134,8 +134,8 @@ void sparkleHandler() {
 
   uint8_t r = 0, g = 0, b = 0;
   if (server->hasArg("r")) r = server->arg("r").toInt();
-  if (server->hasArg("g")) b = server->arg("g").toInt();
-  if (server->hasArg("b")) r = server->arg("b").toInt();
+  if (server->hasArg("g")) g = server->arg("g").toInt();
+  if (server->hasArg("b")) b = server->arg("b").toInt();
   CRGB bgColor = CRGB(r, g, b);
 
   uint8_t sparkle_threshold = 0;

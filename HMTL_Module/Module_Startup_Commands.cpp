@@ -57,6 +57,7 @@ void startup_commands(ProgramManager *manager, MessageHandler *handler,
                            250*num, pixel_color(128,0,0),
                            250, 0);
     msg = (msg_hdr_t *)sockets[0]->send_buffer;
+  }
 #endif // STARTUP_BLINK
 
 #ifdef STARTUP_SPARKLE
@@ -87,6 +88,7 @@ void startup_commands(ProgramManager *manager, MessageHandler *handler,
                          1, 0);
 #endif
     msg = (msg_hdr_t *)sockets[0]->send_buffer;
+  }
 #endif // STARTUP_CIRCULAR
 
 #ifdef STARTUP_FADE_ALL
@@ -94,7 +96,7 @@ void startup_commands(ProgramManager *manager, MessageHandler *handler,
   uint8_t output;
   for (output = manager->lookup_output_by_type(HMTL_OUTPUT_VALUE, i++);
        output != HMTL_NO_OUTPUT;
-       output = manager->lookup_output_by_type(i++)) {
+       output = manager->lookup_output_by_type(HMTL_OUTPUT_VALUE, i++)) {
     DEBUG4_VALUELN("STARTUP FADE:", output);
     hmtl_program_fade_fmt(sockets[0]->send_buffer, sockets[0]->send_data_size,
                           config->address, output,
