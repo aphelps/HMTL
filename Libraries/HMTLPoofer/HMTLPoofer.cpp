@@ -194,7 +194,8 @@ void Poofer::ignite(uint32_t period_ms, uint32_t pilot_delay_ms) {
 /* Return the remaining time in the ignition sequence */
 uint32_t Poofer::ignite_remaining() {
   if (igniter_off_ms) {
-    return (igniter_off_ms - millis());
+    uint32_t now = millis();
+    return (now < igniter_off_ms) ? (igniter_off_ms - now) : 0;
   } else {
     return 0;
   }
@@ -280,7 +281,7 @@ void Poofer::update() {
     /*
      * The delay before the pilot light valve is enabled has passed
      */
-    DEBUG3_VALUELN("Igniter on: ", id);
+    DEBUG3_VALUELN("Pilot on: ", id);
     disableState(PILOT_DELAY);
     enableState(PILOT_ON);
     enableState(CHANGED);
