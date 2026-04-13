@@ -97,16 +97,19 @@ int hmtl_read_config(config_hdr_t *hdr, config_max_t outputs[],
                           (uint8_t *)hdr, sizeof (config_hdr_t));
   if (addr < 0) {
     DEBUG_ERR("hmtl_read_config: error reading config from eeprom");
+    EEPROM_end();
     return -1;
   }
 
   if (hdr->magic != HMTL_CONFIG_MAGIC) {
     DEBUG_ERR("hmtl_read_config: read config with invalid magic");
+    EEPROM_end();
     return -2;
   }
 
   if (hdr->protocol_version != HMTL_CONFIG_VERSION) {
     DEBUG1_VALUELN("hmtl_read_config: hdr has wrong protocol version:", hdr->protocol_version);
+    EEPROM_end();
     return -3;
   }
 
@@ -114,6 +117,7 @@ int hmtl_read_config(config_hdr_t *hdr, config_max_t outputs[],
     /* Read in the outputs if any were indicated and a buffer was provided */
     if (max_outputs < hdr->num_outputs) {
       DEBUG_ERR("hmtl_read_config: not enough outputs");
+      EEPROM_end();
       return -4;
     }
     for (int i = 0; i < hdr->num_outputs; i++) {
@@ -121,6 +125,7 @@ int hmtl_read_config(config_hdr_t *hdr, config_max_t outputs[],
                               (uint8_t *)&outputs[i], sizeof (config_max_t));
       if (addr <= 0) {
         DEBUG_ERR("hmtl_read_config: error reading outputs");
+        EEPROM_end();
         return -5;
       }
     }
@@ -445,12 +450,12 @@ boolean hmtl_validate_value(config_value_t *val) {
 }
 
 boolean hmtl_validate_rgb(config_rgb_t *rgb) {
-  uint32_t pinmap = 0;
-  uint32_t pinbit;
+  uint64_t pinmap = 0;
 
   for (int pin = 0; pin < 3; pin++) {
     if (rgb->pins[pin] > MAX_PIN_NUM) return false;
-    pinbit = (1 << rgb->pins[pin]);
+    if (rgb->pins[pin] >= 64) return false;
+    uint64_t pinbit = (1ULL << rgb->pins[pin]);
     if (pinmap & pinbit) return false;
     pinmap |= pinbit;
   }
@@ -487,8 +492,8 @@ boolean hmtl_validate_xbee(config_xbee_t *xbee) {
 
 boolean hmtl_validate_config(config_hdr_t *hdr, output_hdr_t *outputs[],
                              int num_outputs) {
-  uint32_t pinmap = 0;
-  uint32_t pinbit;
+  uint64_t pinmap = 0;
+  uint64_t pinbit;
 
   if (!hmtl_validate_header(hdr)) goto VALIDATE_ERROR;
   if (hdr->num_outputs != num_outputs) {
@@ -503,7 +508,8 @@ boolean hmtl_validate_config(config_hdr_t *hdr, output_hdr_t *outputs[],
       case HMTL_OUTPUT_VALUE: {
         config_value_t *out2 = (config_value_t *)out;
         if (!hmtl_validate_value(out2)) goto VALIDATE_ERROR;
-        pinbit = (1 << out2->pin);
+        if (out2->pin >= 64) goto VALIDATE_ERROR;
+        pinbit = (1ULL << out2->pin);
         if (pinmap & pinbit) goto PIN_ERROR;
         pinmap |= pinbit;
         break;
@@ -512,7 +518,8 @@ boolean hmtl_validate_config(config_hdr_t *hdr, output_hdr_t *outputs[],
         config_rgb_t *out2 = (config_rgb_t *)out;
         if (!hmtl_validate_rgb(out2)) goto VALIDATE_ERROR;
         for (int pin = 0; pin < 3; pin++) {
-          pinbit = (1 << out2->pins[pin]);
+          if (out2->pins[pin] >= 64) goto VALIDATE_ERROR;
+          pinbit = (1ULL << out2->pins[pin]);
           if (pinmap & pinbit) goto PIN_ERROR;
           pinmap |= pinbit;
         }
@@ -521,10 +528,15 @@ boolean hmtl_validate_config(config_hdr_t *hdr, output_hdr_t *outputs[],
       case HMTL_OUTPUT_PIXELS: {
         config_pixels_t *out2 = (config_pixels_t *)out;
         if (!hmtl_validate_pixels(out2)) goto VALIDATE_ERROR;
-        pinbit = (1 << out2->clockPin);
-        if (pinmap & pinbit) goto PIN_ERROR;
-        pinmap |= pinbit;
-        pinbit = (1 << out2->dataPin);
+        if (out2->clockPin != (uint8_t)-1) {
+          // 0xFF means no external clock (e.g. single-wire strips); skip pinmap
+          if (out2->clockPin >= 64) goto VALIDATE_ERROR;
+          pinbit = (1ULL << out2->clockPin);
+          if (pinmap & pinbit) goto PIN_ERROR;
+          pinmap |= pinbit;
+        }
+        if (out2->dataPin >= 64) goto VALIDATE_ERROR;
+        pinbit = (1ULL << out2->dataPin);
         if (pinmap & pinbit) goto PIN_ERROR;
         pinmap |= pinbit;
         break;
@@ -532,7 +544,8 @@ boolean hmtl_validate_config(config_hdr_t *hdr, output_hdr_t *outputs[],
       case HMTL_OUTPUT_MPR121: {
         config_mpr121_t *out2 = (config_mpr121_t *)out;
         if (!hmtl_validate_mpr121(out2)) goto VALIDATE_ERROR;
-        pinbit = (1 << out2->irqPin);
+        if (out2->irqPin >= 64) goto VALIDATE_ERROR;
+        pinbit = (1ULL << out2->irqPin);
         if (pinmap & pinbit) goto PIN_ERROR;
         pinmap |= pinbit;
         break;
@@ -540,15 +553,16 @@ boolean hmtl_validate_config(config_hdr_t *hdr, output_hdr_t *outputs[],
       case HMTL_OUTPUT_RS485: {
         config_rs485_t *out2 = (config_rs485_t *)out;
         if (!hmtl_validate_rs485(out2)) goto VALIDATE_ERROR;
-        pinbit = (1 << out2->recvPin);
+        if (out2->recvPin >= 64 || out2->xmitPin >= 64 || out2->enablePin >= 64) goto VALIDATE_ERROR;
+        pinbit = (1ULL << out2->recvPin);
         if (pinmap & pinbit) goto PIN_ERROR;
         pinmap |= pinbit;
 
-        pinbit = (1 << out2->xmitPin);
+        pinbit = (1ULL << out2->xmitPin);
         if (pinmap & pinbit) goto PIN_ERROR;
         pinmap |= pinbit;
 
-        pinbit = (1 << out2->enablePin);
+        pinbit = (1ULL << out2->enablePin);
         if (pinmap & pinbit) goto PIN_ERROR;
         pinmap |= pinbit;
         break;
@@ -556,11 +570,12 @@ boolean hmtl_validate_config(config_hdr_t *hdr, output_hdr_t *outputs[],
       case HMTL_OUTPUT_XBEE: {
         config_xbee_t *out2 = (config_xbee_t *)out;
         if (!hmtl_validate_xbee(out2)) goto VALIDATE_ERROR;
-        pinbit = (1 << out2->recvPin);
+        if (out2->recvPin >= 64 || out2->xmitPin >= 64) goto VALIDATE_ERROR;
+        pinbit = (1ULL << out2->recvPin);
         if (pinmap & pinbit) goto PIN_ERROR;
         pinmap |= pinbit;
 
-        pinbit = (1 << out2->xmitPin);
+        pinbit = (1ULL << out2->xmitPin);
         if (pinmap & pinbit) goto PIN_ERROR;
         pinmap |= pinbit;
         break;
