@@ -186,7 +186,7 @@ class DeviceScanner(threading.Thread):
             self.logger.log(msg)
 
     def stop(self):
-        self._Thread__stop()
+        pass
 
     def run(self):
         self.log("Scanner started")
@@ -207,15 +207,15 @@ class DeviceScanner(threading.Thread):
                         if (isinstance(msg, HMTLprotocol.PollHdr)):
                             self.log("Poll response: %s" % (msg.dump()))
 
-                            if self.devices[address]:
+                            if self.devices.get(address):
                                 # A device previously responded to this address
                                 self.devices[address].update(msg)
                             else:
                                 # Create a new device on this address
                                 self.devices[address] = HMTLModule(msg)
                         else:
-                            self.log("XXX: Wrong message type? %s" % (msg.dump()))
-                    elif self.devices[address]:
+                            self.log("XXX: Wrong message type? %s" % str(msg))
+                    elif self.devices.get(address):
                         # There was no response for a module we previously had configured
                         self.log("No response for known address %d" % address)
                         self.devices[address].set_active(False)

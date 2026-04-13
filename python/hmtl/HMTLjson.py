@@ -9,9 +9,8 @@ import hmtl.HMTLprotocol as HMTLprotocol
 
 def load_json(filename):
     # Parse the JSON configuration file
-    json_file = open(filename)
-    config_data = json.load(json_file)
-    json_file.close()
+    with open(filename) as json_file:
+        config_data = json.load(json_file)
 
     print("****** Config read from '" + filename + "':")
     pprint(config_data);
@@ -120,7 +119,7 @@ def validate_config(data):
         config['flags'] = 0
 
     if (not "outputs" in data):
-        print("Input file does not contain 'data'")
+        print("Input file does not contain 'outputs'")
         return False
 
     for output in data["outputs"]:

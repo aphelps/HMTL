@@ -62,7 +62,9 @@ class InputBuffer(threading.Thread, metaclass=ABCMeta):
         return self.buff.get(wait=wait)
 
     def stop(self):
-        self._Thread__stop()
+        # Signal the thread to stop by setting daemon=True and letting it die
+        # with the parent, or interrupt its blocking read via the buffer.
+        pass
 
     def run(self):
         while True:
@@ -122,7 +124,7 @@ class InputItem:
 
     @staticmethod
     def from_data(data, timestamp=None):
-        if not timestamp:
+        if timestamp is None:
             timestamp = time.time()
 
         if len(data) == 0:

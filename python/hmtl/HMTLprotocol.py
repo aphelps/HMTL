@@ -325,8 +325,8 @@ class MsgHdr(Msg):
             self.crc,
             self.version,
             self.length,
-            self.mtype, MSG_TYPES[self.mtype],
-            self.flags, '|'.join([MSG_FLAGS[1 << x] for x in range(0,8) if ((1 << x) & self.flags) ]),
+            self.mtype, MSG_TYPES.get(self.mtype, "unknown"),
+            self.flags, '|'.join([MSG_FLAGS[1 << x] for x in range(0,8) if ((1 << x) & self.flags) and (1 << x) in MSG_FLAGS]),
             self.address
         )
 
@@ -625,7 +625,6 @@ class ProgramSparkle(Msg):
         self.val_max = val_max
 
     def pack(self):
-        print("FORMAT=%s PADDING=%d" % (self.FORMAT, self.PADDING))
         return struct.pack(self.FORMAT,
                            self.period,
                            self.bg_values[0],

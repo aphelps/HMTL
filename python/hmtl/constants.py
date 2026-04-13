@@ -61,7 +61,7 @@ UPDATE_BAUD_FMT = '<B'
 
 
 def baud_to_byte(baud):
-    return baud / 1200
+    return baud // 1200
 
 
 def byte_to_baud(data):
