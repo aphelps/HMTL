@@ -660,8 +660,10 @@ boolean program_color(msg_program_t *msg, program_tracker_t *tracker,
 
   hmtl_program_color_t *color = (hmtl_program_color_t *)msg->values;
 
-  DEBUG3_VALUE("Col:", color->color);
-  DEBUG3_VALUE("Ran:", color->range.start);
+  DEBUG3_VALUE("Col r:", color->color.r);
+  DEBUG3_VALUE(" g:", color->color.g);
+  DEBUG3_VALUE(" b:", color->color.b);
+  DEBUG3_VALUE(" Ran:", color->range.start);
   DEBUG3_VALUELN("-", color->range.start + color->range.length - 1);
 
   PixelUtil *pixels = (PixelUtil*)object;

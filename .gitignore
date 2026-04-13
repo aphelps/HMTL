@@ -10,3 +10,4 @@ cscope.*
 buildall.out
 .pio
 cmake-build-debug
+CMakeLists.txt
