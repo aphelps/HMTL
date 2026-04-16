@@ -237,6 +237,7 @@ int hmtl_setup_output(config_hdr_t *config, output_hdr_t *hdr, void *data)
                           out->useInterrupt,
                           START_ADDRESS,  // XXX - Only single address
                           false,          // XXX - No touch times
+                          false,          // No filtered data
                           false);         // XXX - No auto enable
           for (int i = 0; i < MAX_MPR121_PINS; i++) {
             byte touch = out->thresholds[i] & 0x0F;
