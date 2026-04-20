@@ -1,0 +1,33 @@
+{
+    "info": "ESP32 touch controller PCB — custom board with ESP32-WROOM-32E-N8. OBJECT_TYPE=5 (TOUCH_CONTROLLER), CONTROL_MODE=4 (CONTROL_SINGLE_QUINT). Address and device_id are per-installation; set with HMTLConfig.py --address.",
+    "header": {
+        "protocol_version": 3,
+        "hardware_version": 5,
+        "address": 0,
+        "device_id": 0,
+        "baud": 115200,
+        "flags": 0
+    },
+    "outputs": [
+        {
+            "type": "rs485",
+            "recvpin": 16,
+            "xmitpin": 17,
+            "enablepin": 18
+        },
+        {
+            "type": "pixels",
+            "clockpin": 14,
+            "datapin": 13,
+            "numpixels": 12,
+            "rgbtype": 0
+        },
+        {
+            "type": "mpr121",
+            "irqpin": 4,
+            "useinterrupt": 1,
+            "trigger": [ 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3 ],
+            "release": [  1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 ]
+        }
+    ]
+}
