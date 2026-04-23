@@ -81,11 +81,9 @@ def main():
 
         data = item.data.strip()
         try:
-            # Attempt to print the item as ascii
-            text = str(data)
+            text = data.decode('utf-8')
         except UnicodeDecodeError:
-            # Failing that, print the raw data as hex
-            text = ":".join("{:02x}".format(ord(c)) for c in data)
+            text = ":".join("{:02x}".format(b) for b in data)
 
         if options.timestamp:
             logger.log(text)
