@@ -1,0 +1,22 @@
+{
+    "name": "HMTLTypes",
+    "keywords": "hmtl, config, eeprom, types",
+    "description": "HMTL module configuration types and the EEPROM config runtime. NOTE: HMTLTypes.cpp pulls in PixelUtil/FastLED, EEPromUtils, MPR121 and XBeeSocket - consumers that only need the wire format should include HMTLprotocol's HMTLWireFormat.h instead of this library.",
+    "authors":
+    {
+        "name": "Adam Phelps",
+        "email": "amp@cs.stanford.edu"
+    },
+    "repository":
+    {
+        "type": "git",
+        "url": "https://github.com/aphelps/HMTL.git"
+    },
+    "dependencies":
+    [
+        { "name": "HMTLprotocol", "frameworks": "arduino" }
+    ],
+    "include": "HMTLTypes",
+    "frameworks": "arduino",
+    "platforms": ["atmelavr", "espressif32"]
+}

@@ -1,0 +1,22 @@
+{
+    "name": "HMTLprotocol",
+    "keywords": "hmtl, protocol, wire format, messaging",
+    "description": "The HMTL wire format and serial command protocol: header-only, transport- and platform-agnostic. Import HMTLWireFormat.h to speak HMTL without pulling in the module runtime (PixelUtil/FastLED, EEPromUtils, MPR121, XBeeSocket).",
+    "authors":
+    {
+        "name": "Adam Phelps",
+        "email": "amp@cs.stanford.edu"
+    },
+    "repository":
+    {
+        "type": "git",
+        "url": "https://github.com/aphelps/HMTL.git"
+    },
+    "dependencies":
+    [
+        { "name": "Socket", "frameworks": "arduino" }
+    ],
+    "include": "HMTLprotocol",
+    "frameworks": "arduino",
+    "platforms": ["atmelavr", "espressif32"]
+}
