@@ -1,7 +1,7 @@
 /*******************************************************************************
  * Author: Adam Phelps
  * License: MIT
- * Copyright: 2014
+ * Copyright: 2014-2026
  *
  * The HMTL wire format: every constant and structure that appears on a wire or
  * in EEPROM, and nothing else.
@@ -13,6 +13,36 @@
  * what previously forced non-Arduino consumers (host tools, unit tests, the
  * WLED RS485 bridge usermod) to copy-and-paste these declarations instead of
  * importing them.
+ *
+ * INVARIANT: every struct below is __attribute__((__packed__)).
+ * ------------------------------------------------------------
+ * An ATMega328 module and an ESP32 module talk to each other over the same
+ * RS485 bus, and they read each other's EEPROM config blobs, so a struct in
+ * this header must have the SAME size and the SAME field offsets under
+ * avr-gcc and under a 32-bit compiler. Unpacked, that is not true: avr-gcc
+ * aligns every type to 1 byte, while xtensa/arm/x86 align uint16_t to 2, which
+ * inserts padding an AVR peer does not expect. Two structs here drifted for
+ * real before the attribute was applied:
+ *
+ *   config_hdr_v2_t     8 B on AVR (address at offset 3)
+ *                      10 B on 32-bit (address at offset 4) - INTERIOR padding
+ *   msg_poll_response_t 15 B on AVR, 16 B on 32-bit - trailing padding, which
+ *                      made HMTL_MSG_POLL_MIN_LEN 23 or 24 depending on target
+ *
+ * Packing is layout-neutral on AVR (alignment is already 1, so deployed
+ * modules see no change) and corrective everywhere else: it makes the 32-bit
+ * layout equal the AVR layout that is already on the wire. Do not add a struct
+ * to this header without the attribute, and do not remove it from one.
+ * platformio/HMTL_Test/test/test_wire_format/ pins every size and offset so a
+ * regression fails a build rather than a bus.
+ *
+ * Consequence to be aware of: a packed struct has alignment 1, so taking the
+ * address of a multi-byte member yields a possibly-unaligned pointer and
+ * -Waddress-of-packed-member will (rightly) complain. Copy the member out by
+ * value, or memcpy, rather than pointing at it.
+ *
+ * On Arduino builds, include <Arduino.h> before this header - see the byte /
+ * boolean note below. Off-Arduino this header is order-independent.
  *
  * The declarations here were moved verbatim out of:
  *   HMTLTypes/HMTLTypes.h        - config_hdr_*, output_hdr_t, HMTL_OUTPUT_*
@@ -34,6 +64,17 @@
  * Re-declaring a typedef with the same type is legal C++, so this stays a
  * no-op wherever Arduino.h - or the HMTL desktop stub in
  * platformio/HMTL_Test/stubs/Arduino.h - has already been seen.
+ *
+ * Note the asymmetry this creates, deliberately: off-Arduino the header is
+ * fully self-sufficient and include-order-independent, but ON Arduino the
+ * guard skips the aliases and Socket.h's `byte` / `boolean` usage then needs
+ * <Arduino.h> to have been included EARLIER in the translation unit. That is
+ * the pre-existing contract of every HMTL header (HMTLTypes.h used `byte`
+ * under the same rule) and it is not fixed by including <Arduino.h> here: the
+ * whole point of this file is that a host consumer can include it without an
+ * Arduino toolchain anywhere in sight. Arduino sketches get <Arduino.h>
+ * injected before the first line of the sketch, so in practice the ordering is
+ * automatic; library .cpp files must include it themselves, as they already do.
  */
 #if !defined(ARDUINO) && !defined(Arduino_h)
 typedef uint8_t byte;
@@ -50,7 +91,7 @@ typedef bool boolean;
 
 #define HMTL_CONFIG_MAGIC 0x5C
 #define HMTL_CONFIG_VERSION 3
-typedef struct {
+typedef struct __attribute__((__packed__)) {
   uint8_t     magic;
   uint8_t     version;
   uint8_t     address;
@@ -58,7 +99,7 @@ typedef struct {
   uint8_t     flags;
 } config_hdr_v1_t;
 
-typedef struct {
+typedef struct __attribute__((__packed__)) {
   uint8_t     magic;
   uint8_t     protocol_version;
   uint8_t     hardware_version;
@@ -69,7 +110,7 @@ typedef struct {
   uint8_t     flags;
 } config_hdr_v2_t;
 
-typedef struct {
+typedef struct __attribute__((__packed__)) {
   // Fixed portion, must not change between versions
   uint8_t     magic;
   uint8_t     protocol_version;
@@ -153,7 +194,7 @@ typedef struct __attribute__((__packed__)) {
 #define HMTL_MSG_START 0xFC
 
 #define HMTL_MSG_VERSION 2
-typedef struct {
+typedef struct __attribute__((__packed__)) {
   uint8_t startcode;
   uint8_t crc;
   uint8_t version;
@@ -190,21 +231,21 @@ typedef struct {
  * Message formats for messages of type MSG_TYPE_OUTPUT
  */
 
-typedef struct {
+typedef struct __attribute__((__packed__)) {
   output_hdr_t hdr;
   uint16_t value : 13; // 13 bits provide values up to 8192
   uint16_t flags :  3;
 } msg_value_t;
 #define HMTL_MSG_VALUE_LEN (sizeof (msg_hdr_t) + sizeof (msg_value_t))
 
-typedef struct {
+typedef struct __attribute__((__packed__)) {
   output_hdr_t hdr;
   uint8_t values[3];
 } msg_rgb_t;
 #define HMTL_MSG_RGB_LEN (sizeof (msg_hdr_t) + sizeof (msg_rgb_t))
 
 #define MAX_PROGRAM_VAL 32
-typedef struct {
+typedef struct __attribute__((__packed__)) {
   output_hdr_t hdr;
   uint8_t type;
   uint8_t values[MAX_PROGRAM_VAL];
@@ -215,20 +256,25 @@ typedef struct {
  * Message format for MSG_TYPE_POLL
  */
 
-typedef struct {
+typedef struct __attribute__((__packed__)) {
   config_hdr_t config;
   uint16_t object_type;
   uint16_t recv_buffer_size;
   uint8_t msg_version;
   uint8_t data[0];
 } msg_poll_response_t;
+// 23 on every target, because msg_poll_response_t is packed: 8 B msg_hdr_t plus
+// a 15 B response (10 B config_hdr_t + 2 + 2 + 1). Before the packing invariant
+// above this macro was 23 on AVR and 24 on 32-bit targets, so a peer that
+// length-checked a poll response against its own sizeof could reject the other
+// side's; it is now safe to use as a cross-platform wire length.
 #define HMTL_MSG_POLL_MIN_LEN (sizeof (msg_hdr_t) + sizeof (msg_poll_response_t))
 
 /*******************************************************************************
  * Message format for MSG_TYPE_DUMP_CONFIG
  */
 
-typedef struct {
+typedef struct __attribute__((__packed__)) {
   uint8_t data[0];
 } msg_dumpconfig_response_t;
 #define HMTL_MSG_DUMPCONFIG_MIN_LEN (sizeof (msg_hdr_t) + sizeof (msg_dumpconfig_response_t))
@@ -238,7 +284,7 @@ typedef struct {
  * Message format for MSG_TYPE_SET_ADDR
  */
 
-typedef struct {
+typedef struct __attribute__((__packed__)) {
   uint16_t device_id;
   socket_addr_t address;
 } msg_set_addr_t;
@@ -247,15 +293,21 @@ typedef struct {
 /*******************************************************************************
  * Message format for MSG_TYPE_SENSOR
  */
-typedef struct {
-  uint8_t data[];
+// data[0], not data[]: a C99 flexible array member in an otherwise-empty struct
+// is rejected by g++ >= 9 ("flexible array member in an otherwise empty
+// struct"), which would stop host consumers of this header building on a
+// typical Linux box. The GNU zero-length-array form below is accepted
+// everywhere, and both spell sizeof == 0, so HMTL_MSG_SENSOR_MIN_LEN and the
+// wire layout are unchanged.
+typedef struct __attribute__((__packed__)) {
+  uint8_t data[0];
 } msg_sensor_response_t;
 #define HMTL_MSG_SENSOR_MIN_LEN (sizeof (msg_hdr_t) + sizeof (msg_sensor_response_t))
 
-typedef struct {
+typedef struct __attribute__((__packed__)) {
   uint8_t sensor_type;
   uint8_t data_len;
-  uint8_t data[];
+  uint8_t data[0]; // zero-length array for the same reason as above
 } msg_sensor_data_t;
 
 // Sensor types
