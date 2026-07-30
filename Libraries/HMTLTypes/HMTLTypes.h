@@ -4,6 +4,11 @@
 #ifndef HMTLTYPES_H
 #define HMTLTYPES_H
 
+/* The on-the-wire / in-EEPROM declarations (config_hdr_*, output_hdr_t,
+ * HMTL_OUTPUT_*, the baud macros) live in HMTLprotocol so that consumers which
+ * only speak the protocol do not have to pull in the module runtime below. */
+#include "HMTLWireFormat.h"
+
 /******************************************************************************
  * Library options
  */
@@ -35,89 +40,16 @@
 #define HMTL_MAX_OUTPUTS 8 // The maximum number of outputs for a module
 
 #define HMTL_CONFIG_ADDR  0x0E
-#define HMTL_CONFIG_MAGIC 0x5C
-#define HMTL_CONFIG_VERSION 3
-typedef struct {
-  uint8_t     magic;
-  uint8_t     version;
-  uint8_t     address;
-  uint8_t     num_outputs;
-  uint8_t     flags;
-} config_hdr_v1_t;
 
-typedef struct {
-  uint8_t     magic;
-  uint8_t     protocol_version;
-  uint8_t     hardware_version;
-  uint16_t    address;
-  uint8_t     reserved;
-
-  uint8_t     num_outputs;
-  uint8_t     flags;
-} config_hdr_v2_t;
-
-typedef struct {
-  // Fixed portion, must not change between versions
-  uint8_t     magic;
-  uint8_t     protocol_version;
-  // End of fixed portion
-  
-  uint8_t     hardware_version;
-  uint8_t     baud;
-
-  uint8_t     num_outputs;
-  uint8_t     flags;
-
-  uint16_t    device_id;
-  uint16_t    address;
-} config_hdr_v3_t; // 10B
-
-#if HMTL_CONFIG_VERSION == 3
-  typedef config_hdr_v3_t config_hdr_t;
-#elif HMTL_CONFIG_VERSION == 2
-  typedef config_hdr_v2_t config_hdr_t;
-#elif HMTL_CONFIG_VERSION == 1
-  typedef config_hdr_v1_t config_hdr_t;
-#endif
-
-#define HMTL_NO_ADDRESS (uint16_t)-1
-
-// Convert a 8bit baud value to actual baud
-#define BYTE_TO_BAUD(val) ((uint32_t)val * 1200)
-#define BAUD_TO_BYTE(val) (val / 1200)
+/* HMTL_CONFIG_MAGIC / HMTL_CONFIG_VERSION, config_hdr_v1_t..v3_t, config_hdr_t,
+ * HMTL_NO_ADDRESS, BYTE_TO_BAUD / BAUD_TO_BYTE, HMTL_OUTPUT_*, HMTL_FLAG_*,
+ * HMTL_NO_OUTPUT / HMTL_ALL_OUTPUTS and output_hdr_t are in HMTLWireFormat.h,
+ * included above. */
 
 // Max pin value
 
 // TODO: This should be contingent on board type
 #define MAX_PIN_NUM 40
-
-#define HMTL_OUTPUT_NONE    (uint8_t)-1
-#define HMTL_OUTPUT_VALUE   0x1
-#define HMTL_OUTPUT_RGB     0x2
-#define HMTL_OUTPUT_PROGRAM 0x3
-#define HMTL_OUTPUT_PIXELS  0x4
-#define HMTL_OUTPUT_MPR121  0x5
-#define HMTL_OUTPUT_RS485   0x6
-#define HMTL_OUTPUT_XBEE    0x7
-
-#define IS_HMTL_RGB_OUTPUT(out) \
-  ((out == HMTL_OUTPUT_VALUE) || \
-   (out == HMTL_OUTPUT_RGB) || \
-   (out == HMTL_OUTPUT_PIXELS))
-
-#define IS_HMTL_PIXEL_OUTPUT(out) \
-  ((out == HMTL_OUTPUT_PIXELS))
-
-#define HMTL_FLAG_MASTER 0x1
-#define HMTL_FLAG_SERIAL 0x2
-
-#define HMTL_NO_OUTPUT (uint8_t)-1
-#define HMTL_ALL_OUTPUTS (uint8_t)-2
-
-typedef struct __attribute__((__packed__)) {
-  byte type;
-  byte output;
-} output_hdr_t;
 
 typedef struct __attribute__((__packed__)) {
   output_hdr_t hdr;

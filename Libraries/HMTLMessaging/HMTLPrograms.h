@@ -15,26 +15,9 @@
 #endif
 #include "ProgramManager.h"
 
-/*******************************************************************************
- * HMTL Programs message formats
- */
-
-// 1 byte value
-#define HMTL_PROGRAM_NONE         0x00
-#define HMTL_PROGRAM_BLINK        0x01
-#define HMTL_PROGRAM_TIMED_CHANGE 0x02
-#define HMTL_PROGRAM_LEVEL_VALUE  0x03
-#define HMTL_PROGRAM_SOUND_VALUE  0x04
-#define HMTL_PROGRAM_FADE         0x05
-#define HMTL_PROGRAM_SPARKLE      0x06
-#define HMTL_PROGRAM_SOUND_PIXELS 0x07
-#define HMTL_PROGRAM_CIRCULAR     0x08
-#define HMTL_PROGRAM_SEQUENCE     0x09
-
-#define PROGRAM_SENSOR_DATA       0x10 // Special handler for sensor data messages
-
-#define PROGRAM_BRIGHTNESS        0x30 // One-time only
-#define PROGRAM_COLOR             0x31
+/* The HMTL_PROGRAM_* / PROGRAM_* codes travel in msg_program_t.type, so they
+ * live with the rest of the wire format in HMTLWireFormat.h. */
+#include "HMTLWireFormat.h"
 
 /* Intialize the program header */
 void hmtl_program_fmt(msg_program_t *msg_program, uint8_t output,

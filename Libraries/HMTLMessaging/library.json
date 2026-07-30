@@ -1,0 +1,25 @@
+{
+    "name": "HMTLMessaging",
+    "keywords": "hmtl, messaging, rs485, protocol",
+    "description": "HMTL message formatting/handling over a Socket transport, plus the HMTL program modules. NOTE: the sources here need RS485Utils, Debug and (via HMTLPrograms) PixelUtil/FastLED - consumers that only need the wire format should include HMTLprotocol's HMTLWireFormat.h instead of this library.",
+    "authors":
+    {
+        "name": "Adam Phelps",
+        "email": "amp@cs.stanford.edu"
+    },
+    "repository":
+    {
+        "type": "git",
+        "url": "https://github.com/aphelps/HMTL.git"
+    },
+    "dependencies":
+    [
+        { "name": "HMTLprotocol", "frameworks": "arduino" },
+        { "name": "HMTLTypes", "frameworks": "arduino" },
+        { "name": "Socket", "frameworks": "arduino" },
+        { "name": "RS485Utils", "frameworks": "arduino" }
+    ],
+    "include": "HMTLMessaging",
+    "frameworks": "arduino",
+    "platforms": ["atmelavr", "espressif32"]
+}
