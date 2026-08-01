@@ -32,18 +32,29 @@ LIBS = HMTL_ROOT / "Libraries"
 STUBS = HMTL_ROOT / "platformio/HMTL_Test/stubs"
 PIO_PKG = Path(os.environ.get("PIO_PKG", Path.home() / ".platformio/packages"))
 
-# Headers whose asserts this script is responsible for, relative to Libraries/.
+# Files whose asserts this script is responsible for. Paths are relative to
+# Libraries/, except the two under tests/layout/ which are named absolutely.
+#
+# HMTLWireFormat.h itself carries no static_asserts — HMTL#6 put its per-struct
+# numbers in a test file — so listing it here alone would have been a control
+# that controlled nothing. Those numbers now live in wire_layout_asserts.h,
+# which is where this reaches them.
 GUARDED = [
-    "HMTLMessaging/HMTLPrograms.h",
-    "TimeSync/TimeSync.h",
-    "HMTLprotocol/HMTLWireFormat.h",
+    LIBS / "HMTLMessaging/HMTLPrograms.h",
+    LIBS / "TimeSync/TimeSync.h",
+    HERE / "wire_layout_asserts.h",
 ]
 
 # Lines carrying an assertion. Anything matching is expected to break the build
 # when its number changes.
 ASSERT_RE = re.compile(
-    r"HMTL_LAYOUT_SIZE\(|HMTL_LAYOUT_OFF\(|static_assert\("
+    r"HMTL_LAYOUT_SIZE\(|HMTL_LAYOUT_OFF\(|WF_SIZE\(|WF_OFF\(|static_assert\("
 )
+
+# Both settings of the flag, because -DBIG_PIXELS is the only configuration in
+# which hmtl_program_color_t ever had the interior-padding bug: at the default
+# width the struct is 5 bytes with range at 3 on every ABI, packed or not.
+PIXEL_VARIANTS = [("default", []), ("BIG_PIXELS", ["-DBIG_PIXELS"])]
 
 BASE_FLAGS = [
     "-fsyntax-only", "-std=c++11", "-include", "Arduino.h",
@@ -70,13 +81,21 @@ def toolchains():
     return found
 
 
-def compile_tree(cxx, libs_dir):
+def compile_tree(cxx, tree, variant_flags):
+    """Compile layout_check.cpp against a scratch source tree.
+
+    `tree` holds a copy of both Libraries/ and this directory, so a perturbed
+    wire_layout_asserts.h is picked up too.
+    """
+    libs_dir = tree / "Libraries"
+    layout = tree / "layout"
     includes = [
         f"-I{libs_dir}/TimeSync", f"-I{libs_dir}/HMTLprotocol",
         f"-I{libs_dir}/HMTLMessaging", f"-I{libs_dir}/HMTLTypes", f"-I{STUBS}",
+        f"-I{layout}",
     ]
     return subprocess.run(
-        cxx + BASE_FLAGS + includes + ["layout_check.cpp"],
+        cxx + BASE_FLAGS + includes + variant_flags + [str(layout / "layout_check.cpp")],
         cwd=HERE, capture_output=True, text=True,
     )
 
@@ -106,6 +125,13 @@ def bump_last_code_int(text):
         elif c == "/" and text[i:i + 2] == "//":
             masked[i:] = " " * (len(text) - i)
             break
+        elif c == "/" and text[i:i + 2] == "/*":
+            end = text.find("*/", i + 2)
+            end = len(text) if end == -1 else end + 2
+            for j in range(i, end):
+                masked[j] = " "
+            i = end
+            continue
         i += 1
     matches = list(re.finditer(r"\d+", "".join(masked)))
     if not matches:
@@ -131,42 +157,58 @@ def main():
     args = ap.parse_args()
 
     if args.list:
-        for rel in GUARDED:
-            for i, line, _ in assert_lines(LIBS / rel):
-                print(f"{rel}:{i + 1}: {line.strip()}")
+        for path in GUARDED:
+            for i, line, _ in assert_lines(path):
+                print(f"{path.name}:{i + 1}: {line.strip()}")
         return 0
 
     chains = toolchains()
     scratch = Path(tempfile.mkdtemp(prefix="hmtl-layout-"))
     try:
-        libs_copy = scratch / "Libraries"
-        shutil.copytree(LIBS, libs_copy)
+        # Copy both trees: an assert may live in Libraries/ or in this directory.
+        shutil.copytree(LIBS, scratch / "Libraries")
+        shutil.copytree(HERE, scratch / "layout")
+
+        def scratch_path(src):
+            if LIBS in src.parents:
+                return scratch / "Libraries" / src.relative_to(LIBS)
+            return scratch / "layout" / src.relative_to(HERE)
 
         # A negative control means nothing if the baseline is already red.
         for name, cxx in chains:
-            res = compile_tree(cxx, libs_copy)
-            if res.returncode != 0:
-                print(f"BASELINE FAILS under {name}:\n{res.stderr}")
-                return 1
-        print(f"baseline compiles clean under: {', '.join(n for n, _ in chains)}")
+            for vname, vflags in PIXEL_VARIANTS:
+                res = compile_tree(cxx, scratch, vflags)
+                if res.returncode != 0:
+                    print(f"BASELINE FAILS under {name} [{vname}]:\n{res.stderr}")
+                    return 1
+        combos = [f"{n}[{v}]" for n, _ in chains for v, _ in PIXEL_VARIANTS]
+        print(f"baseline compiles clean under: {', '.join(combos)}")
 
         total = survived = 0
-        for rel in GUARDED:
-            orig = (LIBS / rel).read_text()
-            target = libs_copy / rel
-            for i, line, mutated in assert_lines(LIBS / rel):
+        for src in GUARDED:
+            orig = src.read_text()
+            target = scratch_path(src)
+            for i, line, mutated in assert_lines(src):
                 lines = orig.splitlines(keepends=True)
                 lines[i] = mutated
                 target.write_text("".join(lines))
+                # One assert may only be reachable under one flag setting (the
+                # colour struct is the reason this axis exists), so a
+                # perturbation counts as caught if ANY variant goes red.
                 for name, cxx in chains:
                     total += 1
-                    if compile_tree(cxx, libs_copy).returncode == 0:
+                    caught = any(
+                        compile_tree(cxx, scratch, vflags).returncode != 0
+                        for _, vflags in PIXEL_VARIANTS
+                    )
+                    if not caught:
                         survived += 1
-                        print(f"!! {name}: no failure when breaking "
-                              f"{rel}:{i + 1}: {line.strip()}")
+                        print(f"!! {name}: no failure under any pixel variant when "
+                              f"breaking {src.name}:{i + 1}: {line.strip()}")
                 target.write_text(orig)
 
-        print(f"\n{total} perturbations across {len(chains)} toolchains: "
+        print(f"\n{total} perturbations across {len(chains)} toolchains "
+              f"x {len(PIXEL_VARIANTS)} pixel-width variants: "
               f"{total - survived} broke the build as required, {survived} did not")
         return 1 if survived else 0
     finally:

@@ -17,11 +17,7 @@
 #include "HMTLPrograms.h"
 #include "TimeSync.h"
 
-// Frame lengths, which are what a peer length-checks against and the reason a
-// trailing-padding-only difference still breaks interoperation.
-static_assert(HMTL_MSG_VALUE_LEN == 12, "VALUE frame length changed");
-static_assert(HMTL_MSG_RGB_LEN == 13, "RGB frame length changed");
-static_assert(HMTL_MSG_PROGRAM_LEN == 43, "PROGRAM frame length changed");
-static_assert(HMTL_MSG_POLL_MIN_LEN == 23, "POLL frame length changed");
-static_assert(HMTL_MSG_SET_ADDR_LEN == 12, "SET_ADDR frame length changed");
-static_assert(HMTL_MSG_TIMESYNC_LEN == 13, "TIMESYNC frame length changed");
+// Every struct in HMTLWireFormat.h, by size and field offset. HMTL#6 packed
+// those and asserted them in HMTL_Test's host-only suite, so until now nothing
+// checked the packing under the two compilers it exists to reconcile.
+#include "wire_layout_asserts.h"

@@ -51,8 +51,10 @@ build-all:
 	cd platformio/TimeSyncExample   && $(PIO) run -e nano
 
 # test-layout-negative is in the default run, not an optional extra: it takes
-# ~25 s and it is the only thing standing between "the layout guard passed" and
-# "the layout guard cannot fail", which this subsystem has produced before.
+# ~60 s and it is the only thing standing between "the layout guard passed" and
+# "the layout guard cannot fail", which this subsystem has produced before —
+# including once in this very change, where the colour struct's packing guard
+# could not fail until the sweep started compiling -DBIG_PIXELS as well.
 test: test-python test-native test-simavr test-layout test-layout-negative
 
 test-python:
@@ -90,6 +92,7 @@ test-simavr:
 test-layout:
 	@echo "=== Track 4: cross-ABI wire layout sweep ==="
 	$(MAKE) -C $(LAYOUT_DIR)
+	$(MAKE) -C $(LAYOUT_DIR) packed-access
 
 test-layout-negative:
 	@echo "=== Negative control: every layout assert must fail when broken ==="
