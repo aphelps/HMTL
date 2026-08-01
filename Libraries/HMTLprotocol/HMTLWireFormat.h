@@ -319,8 +319,32 @@ typedef struct __attribute__((__packed__)) {
 typedef msg_program_t msg_max_t;
 
 /*******************************************************************************
- * Message format for MSG_TYPE_TIMESYNC in TimeSync.h
+ * Message format for MSG_TYPE_TIMESYNC
+ *
+ * Moved here from TimeSync.h, which is where HMTL#6 left it: it is wire format,
+ * every module handles MSG_TYPE_TIMESYNC, and HMTL_Command_CLI can originate one
+ * to any address on the bus. Leaving it in TimeSync.h also put it out of reach
+ * of the layout guard, because the native suite substitutes a stub TimeSync.h
+ * that never declared the struct at all.
+ *
+ * timestamp is uint32_t, not `unsigned long`, and the type is the part that
+ * actually removes the hazard. `unsigned long` happens to be 4 bytes on both
+ * AVR and xtensa, but it is 8 on any LP64 host, so the struct's size depended on
+ * the ABI's `long` even after packing. Note the corollary for anyone measuring:
+ * host -fpack-struct=1 was NOT a valid AVR proxy for this struct before the type
+ * change (it reported 9 where AVR gives 5), and is valid after it.
  */
+#define TIMESYNC_SYNC   0x1
+#define TIMESYNC_ACK    0x2
+#define TIMESYNC_SET    0x3
+#define TIMESYNC_RESYNC 0x4
+#define TIMESYNC_CHECK  0x5
+
+typedef struct __attribute__((__packed__)) {
+  uint8_t sync_phase;
+  uint32_t timestamp;
+} msg_time_sync_t;
+#define HMTL_MSG_TIMESYNC_LEN (sizeof (msg_hdr_t) + sizeof (msg_time_sync_t))
 
 /*******************************************************************************
  * HMTL Programs message formats

@@ -13,15 +13,29 @@
 #include "FastLED.h"
 #include "Debug.h"
 
-#include <cstdio>
-#include <cstring>
+// <stdio.h>/<string.h> rather than <cstdio>/<cstring>: avr-libc ships the C
+// headers but not the C++ ones, and tests/layout/ compiles these stubs with
+// avr-g++ to check the wire layouts against the AVR ABI. Nothing here uses the
+// std:: names.
+#include <stdio.h>
+#include <string.h>
 
-typedef uint16_t PIXEL_ADDR_TYPE;
+// Mirror the real PixelUtil.h exactly. This stub previously hard-coded
+// uint16_t, which is what the real header gives only under -DBIG_PIXELS; the
+// default is uint8_t. pixel_range_t is embedded in hmtl_program_color_t and
+// therefore goes on the wire, so a stub that silently doubled its width made
+// the native suite agree with a layout no default-flag module ever sends — and
+// did mislead a reader into recording the wrong widths as "confirmed".
+#ifdef BIG_PIXELS
+  #define PIXEL_ADDR_TYPE uint16_t
+#else
+  #define PIXEL_ADDR_TYPE uint8_t
+#endif
 
-struct pixel_range_t {
-    uint16_t start;
-    uint16_t length;
-};
+typedef struct {
+    PIXEL_ADDR_TYPE start;
+    PIXEL_ADDR_TYPE length;
+} pixel_range_t;
 
 struct PRGB {
     uint16_t pixel;

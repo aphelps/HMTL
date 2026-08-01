@@ -111,6 +111,17 @@ WF_OFF(msg_sensor_data_t, sensor_type, 0);
 WF_OFF(msg_sensor_data_t, data_len, 1);
 WF_OFF(msg_sensor_data_t, data, 2);
 
+// 5 B with timestamp at 1. This one lived in TimeSync.h until it moved here with
+// the rest of the wire format; unpacked and with `unsigned long timestamp` it
+// was 8 B with timestamp at 4 on 32-bit targets, so an ESP32 and an AVR read
+// each other's TIMESYNC payloads three bytes out of step. Two changes were
+// needed, not one: packing fixes AVR-vs-32-bit, and uint32_t fixes the fact that
+// `unsigned long` is 8 bytes on this LP64 host — which is also why a host
+// -fpack-struct=1 measurement of the OLD struct (9 B) matched neither target.
+WF_SIZE(msg_time_sync_t, 5);
+WF_OFF(msg_time_sync_t, sync_phase, 0);
+WF_OFF(msg_time_sync_t, timestamp, 1);
+
 // The frame lengths that follow from the above. These are the numbers that go
 // out on the wire, so they are also the numbers a peer length-checks against.
 static_assert(HMTL_MSG_VALUE_LEN == 12, "VALUE frame length changed");
@@ -120,6 +131,7 @@ static_assert(HMTL_MSG_POLL_MIN_LEN == 23, "POLL frame length changed");
 static_assert(HMTL_MSG_SET_ADDR_LEN == 12, "SET_ADDR frame length changed");
 static_assert(HMTL_MSG_SENSOR_MIN_LEN == 8, "SENSOR frame length changed");
 static_assert(HMTL_MSG_DUMPCONFIG_MIN_LEN == 8, "DUMPCONFIG frame length changed");
+static_assert(HMTL_MSG_TIMESYNC_LEN == 13, "TIMESYNC frame length changed");
 
 // ---------------------------------------------------------------------------
 // Runtime: the bytes really land where the offsets claim

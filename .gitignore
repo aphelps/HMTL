@@ -13,3 +13,6 @@ cmake-build-debug
 CMakeLists.txt
 .tags
 .coverage
+
+# tests/layout writes this while composing its COVERAGE line
+tests/layout/.coverage-note
