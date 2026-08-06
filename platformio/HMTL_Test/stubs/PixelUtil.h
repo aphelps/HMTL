@@ -114,8 +114,12 @@ public:
     // behaviour from the implementation it stands in for.)
     void setRangeRGB(pixel_range_t range, CRGB crgb) {
         if (range.length == 0) {
-            for (uint16_t i = 0; i < _num; i++) _leds[i] = crgb;
-        } else if (range.start < _num) {
+            setAllRGB(crgb.r, crgb.g, crgb.b);
+        } else if (range.start >= _num) {
+            // Mirror the real implementation's guard diagnostic so tests can
+            // observe that this branch ran (not merely that no pixels changed).
+            DEBUG1_VALUELN("setRangeRGB: start past end:", range.start);
+        } else {
             uint16_t avail = _num - range.start;
             uint16_t len   = (range.length < avail) ? range.length : avail;
             for (uint16_t i = 0; i < len; i++) _leds[range.start + i] = crgb;

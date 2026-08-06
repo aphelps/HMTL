@@ -133,20 +133,48 @@ void test_set_range_rgb_zero_length_fills_whole_strip() {
 
 // start >= numPixels() writes nothing — neither a clamped write nor the accidental
 // whole-strip flood the real implementation used to produce for start == numPixels().
-void test_set_range_rgb_start_past_end_writes_nothing() {
+// The guard's debug line is asserted so a skipped call can't fake a pass.
+void test_set_range_rgb_start_at_end_writes_nothing() {
     PixelUtil pixels(8, 0, 0, 0);
 
-    pixel_range_t range = {8, 5};  // start == numPixels()
+    pixel_range_t range = {8, 5};  // start == numPixels() exactly
     pixels.setRangeRGB(range, CRGB(0xff, 0xff, 0xff));
     for (uint16_t i = 0; i < 8; i++) {
         TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).r);
         TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).g);
         TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).b);
     }
+    TEST_ASSERT_TRUE(debug_log_contains("setRangeRGB: start past end:8"));
+}
 
-    pixel_range_t far = {200, 5};  // start far past the end
-    pixels.setRangeRGB(far, CRGB(0xff, 0xff, 0xff));
+void test_set_range_rgb_start_far_past_end_writes_nothing() {
+    PixelUtil pixels(8, 0, 0, 0);
+
+    pixel_range_t range = {200, 5};  // start far past the end
+    pixels.setRangeRGB(range, CRGB(0xff, 0xff, 0xff));
     for (uint16_t i = 0; i < 8; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).r);
+        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).g);
+        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).b);
+    }
+    TEST_ASSERT_TRUE(debug_log_contains("setRangeRGB: start past end:200"));
+}
+
+// An over-long range clamps to the end of the strip: {5,10} on 8 pixels writes
+// 5..7 only — earlier pixels untouched, no wrap-around back to the front.
+void test_set_range_rgb_overlong_clamps_to_end() {
+    PixelUtil pixels(8, 0, 0, 0);
+    pixel_range_t range = {5, 10};
+    pixels.setRangeRGB(range, CRGB(0xaa, 0xbb, 0xcc));
+
+    // pixels 5..7 written
+    for (uint16_t i = 5; i < 8; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xaa, pixels.getPixel(i).r);
+        TEST_ASSERT_EQUAL_HEX8(0xbb, pixels.getPixel(i).g);
+        TEST_ASSERT_EQUAL_HEX8(0xcc, pixels.getPixel(i).b);
+    }
+    // pixels 0..4 untouched — in particular no wrap-around onto the strip front
+    for (uint16_t i = 0; i < 5; i++) {
         TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).r);
         TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).g);
         TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).b);
@@ -219,7 +247,9 @@ int main(int argc, char **argv) {
     RUN_TEST(test_set_range_rgb_stored);
     RUN_TEST(test_set_range_rgb_log);
     RUN_TEST(test_set_range_rgb_zero_length_fills_whole_strip);
-    RUN_TEST(test_set_range_rgb_start_past_end_writes_nothing);
+    RUN_TEST(test_set_range_rgb_start_at_end_writes_nothing);
+    RUN_TEST(test_set_range_rgb_start_far_past_end_writes_nothing);
+    RUN_TEST(test_set_range_rgb_overlong_clamps_to_end);
 
     RUN_TEST(test_update_emits_pixels_line);
     RUN_TEST(test_update_hex_values_present);
