@@ -34,6 +34,7 @@ NA	*32/0x20	2            	Taller stand (Board v4)
 69 	69/0x45     	3            	Trigger Board v4 (stereo terminals, XLR), Bluetooth
 70 	70/0x46     	3            	Trigger Board v4 (stereo terminals, XLR)
 71 	71/0x47     	3   	5	Trigger Board v3 (flame effects)
+72 	72/0x48     	3   	5	Trigger Board v3 (flame effects)
 
 ==HMTL Fire Control===
 128 	128/0x80  	3            	HMTL Fire Control Module 1
