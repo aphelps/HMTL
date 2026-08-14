@@ -17,6 +17,8 @@ Run:
     pytest hmtl/tests/test_protocol.py -v
 """
 
+import pytest
+
 import hmtl.HMTLprotocol as HMTLprotocol
 
 
@@ -70,6 +72,44 @@ def test_color_message_carries_the_payload_after_the_headers():
                         HMTLprotocol.ProgramHdr.LENGTH)
     # The program type byte sits immediately before the payload.
     assert msg[-33] == 0x31
+
+
+# ---------------------------------------------------------------------------
+# The validity rule
+#
+# The firmware rejects length == 0 with a nonzero start (program_color in
+# HMTLPrograms.cpp, and test_color_zero_length_with_nonzero_start_is_rejected
+# in the native suite). These pin the same rule on this side.
+#
+# This is the half that DRIFTED. The rule was added to the C reader in one
+# round and not to the encoder, so for one commit this class's docstring
+# asserted the opposite and pack() happily produced messages the module drops
+# — a two-implementation cross-check disagreeing about validity instead of
+# layout, which is the same class of bug the struct had.
+# ---------------------------------------------------------------------------
+
+def test_zero_length_with_nonzero_start_is_refused_by_the_encoder():
+    with pytest.raises(ValueError) as excinfo:
+        HMTLprotocol.ProgramColor([1, 2, 3], start=5, length=0)
+    # The message has to say what to do instead, not just that it failed.
+    assert "start must be 0" in str(excinfo.value)
+
+
+def test_zero_length_with_zero_start_is_the_whole_strip_and_is_allowed():
+    """The one zero-length form that must survive.
+
+    It is what this class's own zero-fill produces for a colour program given
+    nothing but an RGB triple, and it means the same thing in the old and new
+    layouts — which is why the migration is small.
+    """
+    packed = HMTLprotocol.ProgramColor([0, 0, 0xff], start=0, length=0).pack()
+    assert packed[:7] == b"\x00\x00\xff\x00\x00\x00\x00"
+
+
+def test_nonzero_start_with_a_real_length_is_unaffected():
+    """The rule constrains only the zero-length case."""
+    packed = HMTLprotocol.ProgramColor([1, 2, 3], start=5, length=1).pack()
+    assert packed[:7] == b"\x01\x02\x03\x05\x00\x01\x00"
 
 
 # ---------------------------------------------------------------------------

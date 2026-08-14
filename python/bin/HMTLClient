@@ -68,7 +68,9 @@ def handle_args():
     group.add_option("--color", action="store_const",
                       dest="commandtype", const="color",
                       help="Set a range of pixels to one colour: "
-                           "-C r,g,b[,start,length] (length 0 = whole strip)")
+                           "-C r,g,b[,start,length]. Omitting start/length, or "
+                           "giving 0,0, means the whole strip; a nonzero start "
+                           "needs a nonzero length")
     group.add_option("--sequence", action="store_const",
                       dest="commandtype", const="sequence",
                       help="Trigger outputs in sequence: -C out:dur_ms:val,out:dur_ms:val,...")
@@ -261,12 +263,21 @@ def main():
             sys.exit(1)
         (r, g, b) = parts[:3]
         (start, length) = parts[3:5] if len(parts) == 5 else (0, 0)
+        # Construct BEFORE announcing. Printing first meant a refused message
+        # still reported "Sending ... (whole strip)", which is both untrue and
+        # the exact description the validity rule exists to deny.
+        try:
+            program = HMTLprotocol.ProgramColor([int(r), int(g), int(b)],
+                                                int(start), int(length))
+        except ValueError as e:
+            # The module would drop this message. Say so here rather than
+            # letting the operator watch a strip do nothing.
+            print("%s" % e)
+            sys.exit(1)
         print("Sending COLOR message. Address=%d Output=%d Value=%s start=%d length=%d%s" %
               (options.hmtladdress, options.output,
                [int(r), int(g), int(b)], int(start), int(length),
-               " (length 0 = whole strip)" if int(length) == 0 else ""))
-        program = HMTLprotocol.ProgramColor([int(r), int(g), int(b)],
-                                            int(start), int(length))
+               " (whole strip)" if int(length) == 0 else ""))
         msg = program.prepare_msg(options.hmtladdress, options.output)
 
     elif (options.commandtype == "sequence"):
@@ -307,9 +318,12 @@ def main():
                       "the old start and\n"
                       "         length land in the HIGH halves, so "
                       "`-C 255,0,0,0,10` becomes\n"
-                      "         start=2560, length=0, which the module rejects "
-                      "on any strip\n"
-                      "         shorter than 2561 pixels. Use --color instead.")
+                      "         start=2560, length=0. Every 5-byte form leaves "
+                      "the wire length\n"
+                      "         zero, and the module rejects a zero length "
+                      "with a nonzero start\n"
+                      "         on every strip and both -DBIG_PIXELS settings. "
+                      "Use --color instead.")
             print("Sending generic program message. Address=%d Output=%d program=%s data=%s" %
                 (options.hmtladdress, options.output, options.program, commandvalues))
 

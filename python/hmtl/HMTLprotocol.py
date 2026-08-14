@@ -699,9 +699,23 @@ class ProgramColor(Msg):
 
         7 bytes: r g b start_lo start_hi length_lo length_hi
 
-    length == 0 means the WHOLE strip, whatever start says; the firmware
-    rejects a start past the end rather than clamping it, so a stale 5-byte
-    invocation is refused loudly instead of flooding the strip.
+    VALIDITY RULE, enforced here and by the firmware: length == 0 means the
+    WHOLE strip, which makes start meaningless, so a nonzero start with a zero
+    length is rejected rather than sent. Only start == 0 may carry length == 0
+    — which is what this class's own zero-fill produces for a colour program
+    given nothing but an RGB triple.
+
+    That rule is not decoration, it is what makes a stale
+    `-P color -C r,g,b,start,length` refusable at all. Those five bytes leave
+    wire bytes 5-6 zero, so the wire length is ALWAYS 0 and the old start lands
+    in the high half of the new one; rejecting on the start/length pairing
+    catches every such invocation, on every strip length and both settings of
+    -DBIG_PIXELS. Rejecting on the magnitude of start instead would let
+    start=2560 through on a 3000-pixel module and flood it.
+
+    Raising here rather than letting the module drop it is the point of having
+    two implementations: an operator finds out at the CLI, not by watching a
+    strip do nothing.
     """
     TYPE = "PROGRAMCOLOR"
     TYPE_NUM = ProgramGeneric.NAME_MAP["color"]
@@ -712,6 +726,14 @@ class ProgramColor(Msg):
     FORMAT = "<%s%s" % (BASE_FORMAT, 'B' * PADDING)
 
     def __init__(self, values, start=0, length=0):
+        # Rejected at construction, not at pack(), so the traceback points at
+        # the caller that chose the values.
+        if length == 0 and start != 0:
+            raise ValueError(
+                "COLOR length 0 means the whole strip, so start must be 0; "
+                "got start=%d. The module rejects this message. If you meant "
+                "'from %d to the end', give an explicit length." %
+                (start, start))
         self.values = values
         self.start = start
         self.length = length

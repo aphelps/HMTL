@@ -242,6 +242,21 @@ boolean program_brightness(msg_program_t *msg, program_tracker_t *tracker,
  * form - see ProgramColor and the -P color warning in python/, which is how
  * that migration is handled.
  *
+ * VALIDITY RULE, part of the contract and not just an implementation detail:
+ * length == 0 means the WHOLE strip, which makes start meaningless, so a
+ * nonzero start with a zero length is REJECTED. Only start == 0 may carry
+ * length == 0 - which is what a sender's zero-fill produces for a colour
+ * program given nothing but an RGB triple.
+ *
+ * That rule is what makes a stale 5-byte `-P color -C r,g,b,start,length`
+ * refusable at all: those five bytes leave wire bytes 5-6 zero, so the wire
+ * length is ALWAYS 0 and the old start lands in the high half of the new one.
+ * Rejecting on the pairing catches every such message on every strip length
+ * and both -DBIG_PIXELS settings; rejecting on the magnitude of start instead
+ * would let start=2560 through on a 3000-pixel module and flood it.
+ * python/'s ProgramColor raises on the same pairing, so a sender finds out at
+ * the CLI rather than by watching a strip do nothing.
+ *
  * program_color() converts to pixel_range_t at the setRangeRGB call, bounding
  * both fields on the way; see HMTLPrograms.cpp.
  *
