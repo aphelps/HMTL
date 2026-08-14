@@ -720,7 +720,10 @@ class ProgramColor(Msg):
     (255 on a default build) — neither of which a sender can evaluate, since it
     does not know how many pixels the target has. So `ProgramColor([0, 0, 255],
     start=300, length=10)` packs happily here and is dropped by a default-width
-    module, with a DEBUG1 line naming the reason.
+    module, with a DEBUG1 line naming the reason. An over-long LENGTH is not
+    dropped but silently clamped to the end of the strip — the one out-of-range
+    case that still lights something, so do not read a lit strip as proof the
+    range was accepted verbatim.
 
     Raising for what it CAN see is still the point of having two
     implementations: an operator finds out at the CLI for every mistake that

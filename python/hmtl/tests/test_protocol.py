@@ -18,6 +18,7 @@ Run:
 """
 
 import os
+import socket
 import subprocess
 import sys
 
@@ -35,10 +36,35 @@ _PYTHON_DIR = os.path.dirname(os.path.dirname(os.path.dirname(
 _CLI = os.path.join(_PYTHON_DIR, "bin", "HMTLClient")
 
 
+def _closed_port():
+    """A port nothing is listening on: bind, read the number, release it."""
+    s = socket.socket()
+    try:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+    finally:
+        s.close()
+
+
 def _run_cli(*args):
+    """Run the CLI against a deliberately dead command server, with a timeout.
+
+    Both of those are load-bearing, and neither was here first time round.
+
+    The DEAD PORT: HMTLClient's default target is localhost:6000, and any
+    argument list that gets past validation falls through to connecting there
+    and transmitting. A test that reached that path passed only because nothing
+    happened to be listening; with a real HMTL command server up on the
+    developer's machine it would have put a live broadcast COLOR on the fleet.
+
+    The TIMEOUT: neither `multiprocessing.connection.Client` nor
+    `send_and_ack`'s `while True` has one, so a socket that accepts and then
+    says nothing hangs `make test` forever. A hang has to read as a failure.
+    """
     env = dict(os.environ, PYTHONPATH=_PYTHON_DIR)
-    return subprocess.run([sys.executable, _CLI, *args],
-                          capture_output=True, text=True, env=env)
+    return subprocess.run(
+        [sys.executable, _CLI, "-p", str(_closed_port()), *args],
+        capture_output=True, text=True, env=env, timeout=30)
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +237,20 @@ def test_cli_reports_an_out_of_range_field_rather_than_a_struct_traceback():
 
 
 def test_cli_accepts_a_valid_range():
+    """The only one of these that reaches the accept path — mind what that means.
+
+    Past validation the CLI tries to reach a command server, so this asserts on
+    what it PRINTED before that, not on the exit code: the connection to the
+    dead port fails, giving the same status 1 the refusal tests use as evidence
+    of rejection. Distinguishing them by returncode would be reading a number
+    that means two different things.
+
+    The refusal tests never get here — they `sys.exit(1)` well before the
+    HMTLClient construction — which is why only this one needed the dead port.
+    """
     r = _run_cli("--color", "-C", "255,0,0,5,3")
 
     assert "Sending COLOR message" in r.stdout
     assert "start=5 length=3" in r.stdout
+    # It got past validation rather than being refused for some other reason.
+    assert "must be" not in r.stdout
