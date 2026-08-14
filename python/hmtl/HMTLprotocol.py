@@ -725,6 +725,12 @@ class ProgramColor(Msg):
     case that still lights something, so do not read a lit strip as proof the
     range was accepted verbatim.
 
+    And one in-tree receiver ignores the range altogether: WLED's RS485 bridge
+    (usermods/rs485_bridge/usermod_rs485_bridge.cpp) handles PROGRAM_COLOR by
+    reading only the RGB triple at offset 0, so a COLOR sent through it lights
+    whatever that usermod lights regardless of start and length. Worth knowing
+    before concluding a module misparsed the range — it may never have read it.
+
     Raising for what it CAN see is still the point of having two
     implementations: an operator finds out at the CLI for every mistake that
     does not depend on the target.
