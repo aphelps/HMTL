@@ -254,3 +254,31 @@ def test_cli_accepts_a_valid_range():
     assert "start=5 length=3" in r.stdout
     # It got past validation rather than being refused for some other reason.
     assert "must be" not in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# The -P color warning gate
+#
+# Gated on FIVE values rather than on the program being COLOR: the 7-byte form
+# hand-assembled through -P color is correct, and warning on the right answer
+# trains people to ignore the warning that matters. Neither side of the gate
+# had a test.
+# ---------------------------------------------------------------------------
+
+def test_generic_color_warns_on_the_stale_five_byte_form():
+    r = _run_cli("-P", "color", "-C", "255,0,0,0,10")
+
+    assert "WARNING" in r.stdout
+    assert "start=2560" in r.stdout
+
+
+def test_generic_color_is_silent_on_the_correct_seven_byte_form():
+    r = _run_cli("-P", "color", "-C", "255,0,0,5,0,3,0")
+
+    assert "WARNING" not in r.stdout
+
+
+def test_other_generic_programs_are_never_warned_about():
+    r = _run_cli("-P", "blink", "-C", "1,2,3")
+
+    assert "WARNING" not in r.stdout

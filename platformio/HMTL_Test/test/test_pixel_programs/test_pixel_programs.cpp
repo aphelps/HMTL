@@ -576,13 +576,26 @@ void test_color_zero_length_with_nonzero_start_is_rejected() {
 // mean "red, start 0, length 10". Read at the new layout those five bytes are
 // start=2560, length=0 — and length 0 means the WHOLE STRIP.
 //
-// This ran on a 3000-pixel strip deliberately. On a short strip the rejection
-// could come from `start >= numPixels()` and prove nothing about the wide
-// width; here start=2560 is inside the strip AND representable under
-// -DBIG_PIXELS, so only the zero-length-with-nonzero-start rule can catch it.
-// Before that rule existed this case flooded a big strip silently.
+// The -DBIG_PIXELS run is the interesting one: on a 3000-pixel strip start=2560
+// is INSIDE the strip and representable, so no bound can catch it and only the
+// zero-length-with-nonzero-start rule can. Before that rule existed this case
+// flooded a big strip silently.
+//
+// The strip size is per-flag, and asserted. It used to be an unconditional
+// 3000, which a default build cannot have — when the stub's _num became
+// PIXEL_ADDR_TYPE that silently truncated to 184 and the reads at 2560/2999
+// below became vacuous out-of-bounds lookups. The test stayed green, so nothing
+// said so. Asserting numPixels() is the cheap guard against a stub change
+// quietly rewriting a test's premise again.
 void test_color_stale_five_byte_invocation_is_rejected_not_flooded() {
-    PixelUtil pixels(3000, 0, 0, 0);
+#ifdef BIG_PIXELS
+    const uint16_t NUM = 3000;
+#else
+    const uint16_t NUM = 200;   // a default build cannot address more than 255
+#endif
+    PixelUtil pixels(NUM, 0, 0, 0);
+    TEST_ASSERT_EQUAL_UINT16(NUM, pixels.numPixels());
+
     output_hdr_t out = make_pixels_hdr(0);
     output_hdr_t      *outputs[1]  = { &out };
     program_tracker_t *trackers[1] = { nullptr };
@@ -603,9 +616,13 @@ void test_color_stale_five_byte_invocation_is_rejected_not_flooded() {
         "COLOR zero length needs zero start; got start:2560"));
     TEST_ASSERT_FALSE(debug_log_contains("setAllRGB"));
     TEST_ASSERT_FALSE(debug_log_contains("setRangeRGB"));
+    // Indices derived from NUM rather than written out, so they stay inside the
+    // strip under both flags. Hard-coded 2560/2999 read past the end of the
+    // default-flag strip and the stub returns a default CRGB() for those, which
+    // is an assertion that cannot fail.
     TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(0).r);
-    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(2560).r);
-    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(2999).r);
+    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(NUM / 2).r);
+    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(NUM - 1).r);
 }
 
 // ---------------------------------------------------------------------------
