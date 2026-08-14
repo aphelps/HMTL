@@ -279,6 +279,11 @@ def test_generic_color_is_silent_on_the_correct_seven_byte_form():
 
 
 def test_other_generic_programs_are_never_warned_about():
-    r = _run_cli("-P", "blink", "-C", "1,2,3")
+    # FIVE values, not three. With three, the len() half of the gate keeps this
+    # silent on its own and the `program == color` half goes untested — a test
+    # that cannot fail for the reason its name gives, which is the whole disease
+    # this PR is about. Mutation-checked: deleting the program check leaves this
+    # green at three values and red at five.
+    r = _run_cli("-P", "blink", "-C", "1,2,3,4,5")
 
     assert "WARNING" not in r.stdout
