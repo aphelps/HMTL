@@ -32,94 +32,11 @@ void tearDown() {}
 // Compile-time: sizes and offsets, identical on every ABI
 // ---------------------------------------------------------------------------
 
-#define WF_SIZE(t, n)   static_assert(sizeof(t) == (n), #t " changed size")
-#define WF_OFF(t, f, n) static_assert(offsetof(t, f) == (n), #t "." #f " moved")
-
-WF_SIZE(config_hdr_v1_t, 5);
-WF_OFF(config_hdr_v1_t, magic, 0);
-WF_OFF(config_hdr_v1_t, version, 1);
-WF_OFF(config_hdr_v1_t, address, 2);
-WF_OFF(config_hdr_v1_t, num_outputs, 3);
-WF_OFF(config_hdr_v1_t, flags, 4);
-
-// 8 B with address at 3. Unpacked this was 10 B with address at 4 on 32-bit
-// targets — interior padding, the worst of the drift the packing fixed.
-WF_SIZE(config_hdr_v2_t, 8);
-WF_OFF(config_hdr_v2_t, magic, 0);
-WF_OFF(config_hdr_v2_t, protocol_version, 1);
-WF_OFF(config_hdr_v2_t, hardware_version, 2);
-WF_OFF(config_hdr_v2_t, address, 3);
-WF_OFF(config_hdr_v2_t, reserved, 5);
-WF_OFF(config_hdr_v2_t, num_outputs, 6);
-WF_OFF(config_hdr_v2_t, flags, 7);
-
-WF_SIZE(config_hdr_v3_t, 10);
-WF_OFF(config_hdr_v3_t, magic, 0);
-WF_OFF(config_hdr_v3_t, protocol_version, 1);
-WF_OFF(config_hdr_v3_t, hardware_version, 2);
-WF_OFF(config_hdr_v3_t, baud, 3);
-WF_OFF(config_hdr_v3_t, num_outputs, 4);
-WF_OFF(config_hdr_v3_t, flags, 5);
-WF_OFF(config_hdr_v3_t, device_id, 6);
-WF_OFF(config_hdr_v3_t, address, 8);
-
-WF_SIZE(output_hdr_t, 2);
-WF_OFF(output_hdr_t, type, 0);
-WF_OFF(output_hdr_t, output, 1);
-
-WF_SIZE(msg_hdr_t, 8);
-WF_OFF(msg_hdr_t, startcode, 0);
-WF_OFF(msg_hdr_t, crc, 1);
-WF_OFF(msg_hdr_t, version, 2);
-WF_OFF(msg_hdr_t, length, 3);
-WF_OFF(msg_hdr_t, type, 4);
-WF_OFF(msg_hdr_t, flags, 5);
-WF_OFF(msg_hdr_t, address, 6);   // catches a socket_addr_t width change too
-
-WF_SIZE(msg_value_t, 4);
-WF_OFF(msg_value_t, hdr, 0);     // bitfields have no offsetof; see the runtime test
-
-WF_SIZE(msg_rgb_t, 5);
-WF_OFF(msg_rgb_t, hdr, 0);
-WF_OFF(msg_rgb_t, values, 2);
-
-WF_SIZE(msg_program_t, 35);
-WF_OFF(msg_program_t, hdr, 0);
-WF_OFF(msg_program_t, type, 2);
-WF_OFF(msg_program_t, values, 3);
-
-// 15 B on every target. Unpacked this was 15 on AVR and 16 on 32-bit, which
-// made HMTL_MSG_POLL_MIN_LEN 23 or 24 and let a length-checking peer reject a
-// structurally valid poll response.
-WF_SIZE(msg_poll_response_t, 15);
-WF_OFF(msg_poll_response_t, config, 0);
-WF_OFF(msg_poll_response_t, object_type, 10);
-WF_OFF(msg_poll_response_t, recv_buffer_size, 12);
-WF_OFF(msg_poll_response_t, msg_version, 14);
-WF_OFF(msg_poll_response_t, data, 15);
-
-WF_SIZE(msg_dumpconfig_response_t, 0);
-
-WF_SIZE(msg_set_addr_t, 4);
-WF_OFF(msg_set_addr_t, device_id, 0);
-WF_OFF(msg_set_addr_t, address, 2);
-
-WF_SIZE(msg_sensor_response_t, 0);
-
-WF_SIZE(msg_sensor_data_t, 2);
-WF_OFF(msg_sensor_data_t, sensor_type, 0);
-WF_OFF(msg_sensor_data_t, data_len, 1);
-WF_OFF(msg_sensor_data_t, data, 2);
-
-// The frame lengths that follow from the above. These are the numbers that go
-// out on the wire, so they are also the numbers a peer length-checks against.
-static_assert(HMTL_MSG_VALUE_LEN == 12, "VALUE frame length changed");
-static_assert(HMTL_MSG_RGB_LEN == 13, "RGB frame length changed");
-static_assert(HMTL_MSG_PROGRAM_LEN == 43, "PROGRAM frame length changed");
-static_assert(HMTL_MSG_POLL_MIN_LEN == 23, "POLL frame length changed");
-static_assert(HMTL_MSG_SET_ADDR_LEN == 12, "SET_ADDR frame length changed");
-static_assert(HMTL_MSG_SENSOR_MIN_LEN == 8, "SENSOR frame length changed");
-static_assert(HMTL_MSG_DUMPCONFIG_MIN_LEN == 8, "DUMPCONFIG frame length changed");
+// The compile-time block lives in tests/layout/wire_layout_asserts.h so the
+// same numbers are checked by avr-g++ and xtensa-esp32-elf-g++ too, not just
+// by this host-only suite. The runtime cases below are what a static_assert
+// cannot express.
+#include "../../../../tests/layout/wire_layout_asserts.h"
 
 // ---------------------------------------------------------------------------
 // Runtime: the bytes really land where the offsets claim

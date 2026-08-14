@@ -98,6 +98,21 @@ void print_hex_buffer(const char *buff, int length);
 // C++ helpers — format key+value then call _debug_emit (template, header-only)
 // ---------------------------------------------------------------------------
 #ifdef __cplusplus
+
+// The stream-based helpers below need <sstream>, which the AVR toolchain does
+// not ship. This stub is also compiled by tests/layout/, which sweeps the real
+// wire headers with avr-g++ and xtensa-esp32-elf-g++; there the debug output is
+// never used, only parsed, so fall back to no-ops rather than failing to
+// include. Anything that actually inspects debug output runs on the host.
+#if defined(__has_include)
+#  if __has_include(<sstream>)
+#    define HMTL_STUB_HAVE_SSTREAM 1
+#  endif
+#elif !defined(__AVR__)
+#  define HMTL_STUB_HAVE_SSTREAM 1
+#endif
+
+#ifdef HMTL_STUB_HAVE_SSTREAM
 #include <sstream>
 #include <iomanip>
 
@@ -115,6 +130,19 @@ inline void _debug_hex_emit(const char *key, T val, int newline) {
     oss << key << "0x" << std::hex << static_cast<unsigned long>(val);
     _debug_emit(oss.str().c_str(), newline);
 }
+
+#else /* !HMTL_STUB_HAVE_SSTREAM */
+
+template<typename T>
+inline void _debug_value_emit(const char *key, T, int newline) {
+    _debug_emit(key, newline);
+}
+template<typename T>
+inline void _debug_hex_emit(const char *key, T, int newline) {
+    _debug_emit(key, newline);
+}
+
+#endif /* HMTL_STUB_HAVE_SSTREAM */
 #endif /* __cplusplus */
 
 // ---------------------------------------------------------------------------
