@@ -677,15 +677,16 @@ boolean program_color(msg_program_t *msg, program_tracker_t *tracker,
    * be built against an older copy, and a raw truncation of, say, start=256
    * would silently address pixel 0.
    *
-   * The order matters. Checking start first means an over-long range can never
-   * degrade into a whole-strip fill: length == 0 keeps its documented "whole
-   * strip" meaning and is passed straight through, and because avail >= 1 the
-   * clamp below cannot MANUFACTURE a zero. Do not "simplify" that away.
+   * Zero length can never be MANUFACTURED here: the clamp only ever lowers a
+   * length to `avail`, which is >= 1, so an over-long range cannot degrade into
+   * a whole-strip fill. A zero that ARRIVES keeps its documented meaning, but
+   * only in the one form that can be meant - see the start != 0 check below.
+   * Do not "simplify" either half away.
    *
-   * A start past the end is rejected rather than clamped, and the DEBUG1 line
-   * is the point of it. `HMTLClient -P color -C r,g,b,start,length` used to
-   * emit the 5-byte form; sent at the new layout that decodes as a huge start,
-   * and this line is what turns "the strip did nothing" into a diagnosis.
+   * Everything out of range is rejected rather than clamped, and the DEBUG1
+   * lines are the point of it. `HMTLClient -P color -C r,g,b,start,length` used
+   * to emit the 5-byte form; sent at the new layout it decodes as a huge start,
+   * and these lines are what turn "the strip did nothing" into a diagnosis.
    */
   uint16_t num = pixels->numPixels();
 
@@ -696,10 +697,43 @@ boolean program_color(msg_program_t *msg, program_tracker_t *tracker,
    */
   const uint16_t addr_max = (uint16_t)(PIXEL_ADDR_TYPE)~(PIXEL_ADDR_TYPE)0;
 
-  if ((num == 0) || (color->range.start >= num) ||
-      ((uint32_t)color->range.start > (uint32_t)addr_max)) {
-    DEBUG1_VALUE("COLOR start past addressable range:", color->range.start);
+  /*
+   * length == 0 means the whole strip, which makes `start` meaningless - so a
+   * NONZERO start with a zero length is not a request anyone can have meant.
+   * It is exactly what a stale 5-byte `-P color -C r,g,b,start,length`
+   * decodes to, and rejecting it HERE is what makes that rejection independent
+   * of how long the strip is. Every other check below would pass
+   * start=2560,length=0 through on a 3000-pixel -DBIG_PIXELS module - inside
+   * the strip, representable - and the module would flood. The one zero-length
+   * form that must survive is start == 0, which is what HMTLprotocol.py's
+   * zero-fill produces for a colour program carrying only an RGB triple.
+   */
+  if ((color->range.length == 0) && (color->range.start != 0)) {
+    DEBUG1_VALUELN("COLOR zero length needs zero start; got start:",
+                   color->range.start);
+    return false;
+  }
+
+  /* Reported separately, because "this output has no pixels", "that pixel is
+   * off the end of this strip" and "that index does not fit the address type"
+   * send you to three different places. */
+  if (num == 0) {
+    DEBUG1_PRINTLN("COLOR: output has no pixels");
+    return false;
+  }
+  if (color->range.start >= num) {
+    DEBUG1_VALUE("COLOR start past end of strip:", color->range.start);
     DEBUG1_VALUELN(" numPixels:", num);
+    return false;
+  }
+  // Vacuous under -DBIG_PIXELS, where a uint16_t start always fits a uint16_t
+  // PIXEL_ADDR_TYPE, and load-bearing at the default width, where 300 would
+  // otherwise narrow to 44 and paint a range nobody asked for. Left as a plain
+  // runtime test rather than an #ifdef so the two widths read as one rule.
+  if (color->range.start > addr_max) {
+    DEBUG1_VALUE("COLOR start not representable in PIXEL_ADDR_TYPE:",
+                 color->range.start);
+    DEBUG1_VALUELN(" max:", addr_max);
     return false;
   }
 

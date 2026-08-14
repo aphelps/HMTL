@@ -454,7 +454,8 @@ void test_color_start_beyond_a_byte_is_not_truncated() {
     // narrowing is bounded, so the message is rejected instead.
     TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(44).g);
     TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(300).g);
-    TEST_ASSERT_TRUE(debug_log_contains("COLOR start past addressable range:300"));
+    TEST_ASSERT_TRUE(debug_log_contains(
+        "COLOR start not representable in PIXEL_ADDR_TYPE:300"));
 #endif
 }
 
@@ -498,12 +499,44 @@ void test_color_overlong_length_is_clamped_not_zeroed() {
     TEST_ASSERT_EQUAL_HEX8(0xff, pixels.getPixel(7).r);
 }
 
+// length == 0 means the whole strip, so a NONZERO start with it is not a
+// request anyone can have meant — and it is the shape every stale 5-byte
+// invocation takes. Rejecting on that pairing rather than on the magnitude of
+// start is what makes the rejection independent of how long the strip is.
+void test_color_zero_length_with_nonzero_start_is_rejected() {
+    PixelUtil pixels(8, 0, 0, 0);
+    output_hdr_t out = make_pixels_hdr(0);
+    output_hdr_t      *outputs[1]  = { &out };
+    program_tracker_t *trackers[1] = { nullptr };
+    void              *objects[1]  = { &pixels };
+    ProgramManager mgr(outputs, trackers, objects, 1, color_fns, 1);
+
+    // start 5 is perfectly valid on an 8-pixel strip and representable at both
+    // widths, so nothing else in the conversion would object to it.
+    byte buf[HMTL_MSG_PROGRAM_LEN];
+    make_color_msg(buf, sizeof(buf), 0, 0xff, 0x00, 0x00, /*start*/5, /*length*/0);
+    TEST_ASSERT_TRUE(send_program(mgr, buf));
+
+    TEST_ASSERT_TRUE(debug_log_contains(
+        "COLOR zero length needs zero start; got start:5"));
+    TEST_ASSERT_FALSE(debug_log_contains("setAllRGB"));
+    TEST_ASSERT_FALSE(debug_log_contains("setRangeRGB"));
+    for (uint16_t i = 0; i < 8; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).r);
+    }
+}
+
 // The migration case, verbatim: `HMTLClient -P color -C 255,0,0,0,10` used to
 // mean "red, start 0, length 10". Read at the new layout those five bytes are
-// start=2560, length=0 — and length 0 means the WHOLE STRIP. Rejecting on start
-// first is what stops a stale invocation from flooding the strip silently.
+// start=2560, length=0 — and length 0 means the WHOLE STRIP.
+//
+// This ran on a 3000-pixel strip deliberately. On a short strip the rejection
+// could come from `start >= numPixels()` and prove nothing about the wide
+// width; here start=2560 is inside the strip AND representable under
+// -DBIG_PIXELS, so only the zero-length-with-nonzero-start rule can catch it.
+// Before that rule existed this case flooded a big strip silently.
 void test_color_stale_five_byte_invocation_is_rejected_not_flooded() {
-    PixelUtil pixels(8, 0, 0, 0);
+    PixelUtil pixels(3000, 0, 0, 0);
     output_hdr_t out = make_pixels_hdr(0);
     output_hdr_t      *outputs[1]  = { &out };
     program_tracker_t *trackers[1] = { nullptr };
@@ -520,12 +553,13 @@ void test_color_stale_five_byte_invocation_is_rejected_not_flooded() {
 
     TEST_ASSERT_TRUE(send_program(mgr, buf));
 
-    TEST_ASSERT_TRUE(debug_log_contains("COLOR start past addressable range:2560"));
+    TEST_ASSERT_TRUE(debug_log_contains(
+        "COLOR zero length needs zero start; got start:2560"));
     TEST_ASSERT_FALSE(debug_log_contains("setAllRGB"));
     TEST_ASSERT_FALSE(debug_log_contains("setRangeRGB"));
-    for (uint16_t i = 0; i < 8; i++) {
-        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).r);
-    }
+    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(0).r);
+    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(2560).r);
+    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(2999).r);
 }
 
 // ---------------------------------------------------------------------------
@@ -554,6 +588,7 @@ int main(int argc, char **argv) {
     RUN_TEST(test_color_start_beyond_a_byte_is_not_truncated);
     RUN_TEST(test_color_zero_length_fills_whole_strip);
     RUN_TEST(test_color_overlong_length_is_clamped_not_zeroed);
+    RUN_TEST(test_color_zero_length_with_nonzero_start_is_rejected);
     RUN_TEST(test_color_stale_five_byte_invocation_is_rejected_not_flooded);
 
     return UNITY_END();

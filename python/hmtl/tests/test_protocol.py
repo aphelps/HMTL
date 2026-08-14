@@ -63,12 +63,13 @@ def test_color_message_carries_the_payload_after_the_headers():
     msg = HMTLprotocol.ProgramColor([0xff, 0x00, 0x00], start=2,
                                     length=3).prepare_msg(address=5, output=1)
 
-    payload = HMTLprotocol.ProgramColor([0xff, 0x00, 0x00], 2, 3).pack()
-    assert msg.endswith(payload)
+    # Literal, not `ProgramColor(...).pack()` — deriving the expectation from
+    # the encoder under test is the one thing this file is trying not to do.
+    assert msg[-32:] == b"\xff\x00\x00\x02\x00\x03\x00" + b"\x00" * 25
     assert len(msg) == (HMTLprotocol.MsgHdr.LENGTH +
                         HMTLprotocol.ProgramHdr.LENGTH)
     # The program type byte sits immediately before the payload.
-    assert msg[-(len(payload) + 1)] == 0x31
+    assert msg[-33] == 0x31
 
 
 # ---------------------------------------------------------------------------

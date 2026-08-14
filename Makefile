@@ -60,22 +60,30 @@ build-all:
 # and demands a red build can tell those apart.
 test: test-python test-native test-simavr test-layout test-layout-negative
 
-# Files are named individually rather than pointing pytest at hmtl/tests/,
-# which would drag in the pre-existing test_CircularBuffer failures. A new test
-# file therefore has to be added HERE to run at all — test_protocol.py is the
-# cross-implementation guard on the COLOR wire layout, and a guard no target
-# invokes is the same defect as a static_assert no toolchain compiles.
+# The DIRECTORY with the known-broken file excluded, rather than a list of
+# files to keep in sync. Naming files individually meant a new test file ran
+# under no target until someone remembered to add it here — which is the same
+# defect as a static_assert no toolchain compiles, and this recipe had it while
+# its own comment described it. --ignore keeps test_CircularBuffer's
+# pre-existing failures out of the default run without hiding anything else;
+# `make test-python-all` still includes them.
 test-python:
 	@echo "=== Track 1: Python emulator + protocol tests ==="
-	cd $(PYTHON_DIR) && $(PYTEST) hmtl/tests/test_emulator.py hmtl/tests/test_protocol.py -v
+	cd $(PYTHON_DIR) && $(PYTEST) hmtl/tests/ --ignore=hmtl/tests/test_CircularBuffer.py -v
 
 # Run the full Python test suite (includes pre-existing failures in test_CircularBuffer)
 test-python-all:
 	cd $(PYTHON_DIR) && $(PYTEST) hmtl/tests/ -v
 
+# BOTH pixel-width envs, not just the default one. tests/layout/ sweeps
+# -DBIG_PIXELS over the layout asserts, but until native_bigpixels existed
+# nothing compiled the flag into a RUNNING test — so an `#ifdef BIG_PIXELS`
+# branch in a test body was dead source, and the colour tests' wide-width half
+# (the payoff of widening the wire range) had never been built.
 test-native:
-	@echo "=== Track 2: C++ native tests ==="
+	@echo "=== Track 2: C++ native tests (both pixel widths) ==="
 	cd $(NATIVE_DIR) && $(PIO) test -e native
+	cd $(NATIVE_DIR) && $(PIO) test -e native_bigpixels
 
 test-simavr:
 	@echo "=== Track 3: AVR firmware build check (avr-gcc) ==="
