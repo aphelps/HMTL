@@ -22,10 +22,15 @@
 
 // Mirror the real PixelUtil.h exactly. This stub previously hard-coded
 // uint16_t, which is what the real header gives only under -DBIG_PIXELS; the
-// default is uint8_t. pixel_range_t is embedded in hmtl_program_color_t and
-// therefore goes on the wire, so a stub that silently doubled its width made
-// the native suite agree with a layout no default-flag module ever sends — and
-// did mislead a reader into recording the wrong widths as "confirmed".
+// default is uint8_t.
+//
+// pixel_range_t no longer goes on the wire — hmtl_program_color_t carries a
+// fixed-width wire_pixel_range_t, precisely so that no wire layout depends on
+// a flag the two ends set independently. Keeping the mirror still matters for
+// two reasons: this is the type program_color() narrows INTO before calling
+// setRangeRGB, so a stub of the wrong width would hide a truncation the real
+// build has; and tests/layout/ compiles these stubs with avr-g++ and asserts
+// the width, which is the guard that caught the hard-coded uint16_t.
 #ifdef BIG_PIXELS
   #define PIXEL_ADDR_TYPE uint16_t
 #else
@@ -121,13 +126,33 @@ public:
         setAllRGB(pixel_red(color), pixel_green(color), pixel_blue(color));
     }
 
+    // Mirrors ArduinoLibs' PixelUtil::setRangeRGB semantics, which this stub
+    // previously diverged from in exactly the two cases a range test exercises:
+    //
+    //   length == 0  -> the WHOLE strip (0.._num), not start.._num. The real
+    //                   implementation routes this to setAllRGB, and the
+    //                   meaning is load-bearing: HMTLprotocol.py zero-fills
+    //                   unspecified program bytes, so a colour program carrying
+    //                   only an RGB triple arrives as {0, 0}.
+    //   start >= _num -> draws nothing.
+    //
+    // The old form filled start.._num for length == 0 and clamped start-past-end
+    // into a full-strip fill, so a test written against it would have encoded
+    // the stub's behaviour as the expectation. program_color() bounds both
+    // fields before calling this, so within the domain it permits the two agree
+    // — but the stub should not be the thing that makes that true.
     void setRangeRGB(pixel_range_t range, CRGB crgb) {
-        uint16_t end = (range.length == 0) ? _num : range.start + range.length;
-        if (end > _num) end = _num;
-        for (uint16_t i = range.start; i < end; i++) _leds[i] = crgb;
+        if (range.length == 0) {
+            setAllRGB(crgb.r, crgb.g, crgb.b);
+        } else if (range.start < _num) {
+            uint16_t avail = _num - (uint16_t)range.start;
+            uint16_t len   = (range.length < avail) ? range.length : avail;
+            for (uint16_t i = range.start; i < range.start + len; i++) _leds[i] = crgb;
+        }
 
         char label[32];
-        snprintf(label, sizeof(label), "setRangeRGB [%u+%u]", range.start, range.length);
+        snprintf(label, sizeof(label), "setRangeRGB [%u+%u]",
+                 (unsigned)range.start, (unsigned)range.length);
         _pixel_emit_color(label, crgb.r, crgb.g, crgb.b);
     }
 

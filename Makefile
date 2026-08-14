@@ -52,14 +52,22 @@ build-all:
 
 # test-layout-negative is in the default run, not an optional extra: it takes
 # ~60 s and it is the only thing standing between "the layout guard passed" and
-# "the layout guard cannot fail", which this subsystem has produced before —
-# including once in this very change, where the colour struct's packing guard
-# could not fail until the sweep started compiling -DBIG_PIXELS as well.
+# "the layout guard cannot fail", which this subsystem has produced before.
+# The lesson that put it here: an assert written in terms of a configurable —
+# the colour struct was once sized `3 + 2 * sizeof(PIXEL_ADDR_TYPE)` — agrees
+# with whatever that configurable is, so it holds on both sides of the
+# disagreement it was meant to catch. Only a control that breaks each number
+# and demands a red build can tell those apart.
 test: test-python test-native test-simavr test-layout test-layout-negative
 
+# Files are named individually rather than pointing pytest at hmtl/tests/,
+# which would drag in the pre-existing test_CircularBuffer failures. A new test
+# file therefore has to be added HERE to run at all — test_protocol.py is the
+# cross-implementation guard on the COLOR wire layout, and a guard no target
+# invokes is the same defect as a static_assert no toolchain compiles.
 test-python:
-	@echo "=== Track 1: Python emulator tests ==="
-	cd $(PYTHON_DIR) && $(PYTEST) hmtl/tests/test_emulator.py -v
+	@echo "=== Track 1: Python emulator + protocol tests ==="
+	cd $(PYTHON_DIR) && $(PYTEST) hmtl/tests/test_emulator.py hmtl/tests/test_protocol.py -v
 
 # Run the full Python test suite (includes pre-existing failures in test_CircularBuffer)
 test-python-all:

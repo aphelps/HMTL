@@ -355,6 +355,180 @@ void test_circular_segment_wraps_around() {
 }
 
 // ---------------------------------------------------------------------------
+// program_color
+//
+// hmtl_program_color_t is the one wire struct whose layout used to follow
+// -DBIG_PIXELS. Its range is now a fixed-width wire_pixel_range_t, and
+// program_color() narrows that into pixel_range_t for setRangeRGB.
+//
+// Every payload below is written as LITERAL BYTES rather than through a
+// formatter. There is no hmtl_program_color_fmt() to reuse, and inventing one
+// for the test would only prove the encoder agrees with itself; transcribing
+// the layout by hand is the independent half of the check.
+// ---------------------------------------------------------------------------
+
+static hmtl_program_t color_fns[] = {
+    { PROGRAM_COLOR, NULL, program_color },
+};
+
+// Fill buf with a COLOR program carrying the seven wire bytes
+// r g b start_lo start_hi length_lo length_hi.
+static void make_color_msg(byte *buf, size_t buflen, uint8_t output,
+                           uint8_t r, uint8_t g, uint8_t b,
+                           uint16_t start, uint16_t length) {
+    memset(buf, 0, buflen);
+    msg_program_t *msg = (msg_program_t *)(buf + sizeof(msg_hdr_t));
+    hmtl_program_fmt(msg, output, PROGRAM_COLOR, (uint16_t)buflen);
+
+    msg->values[0] = r;
+    msg->values[1] = g;
+    msg->values[2] = b;
+    msg->values[3] = (uint8_t)(start  & 0xff);   // little-endian, as on the wire
+    msg->values[4] = (uint8_t)(start  >> 8);
+    msg->values[5] = (uint8_t)(length & 0xff);
+    msg->values[6] = (uint8_t)(length >> 8);
+}
+
+// The struct must read those seven bytes the way they were written. This is the
+// assertion the old expression-form static_assert could not make: it agreed
+// with whatever PIXEL_ADDR_TYPE happened to be, so it held on both sides of a
+// disagreement.
+void test_color_wire_bytes_decode_little_endian() {
+    byte buf[HMTL_MSG_PROGRAM_LEN];
+    make_color_msg(buf, sizeof(buf), 0, 0x11, 0x22, 0x33, 0x0102, 0x0304);
+
+    msg_program_t *msg = (msg_program_t *)(buf + sizeof(msg_hdr_t));
+    hmtl_program_color_t *color = (hmtl_program_color_t *)msg->values;
+
+    TEST_ASSERT_EQUAL_UINT(7, sizeof(hmtl_program_color_t));
+    TEST_ASSERT_EQUAL_HEX8(0x11, color->color.r);
+    TEST_ASSERT_EQUAL_HEX8(0x22, color->color.g);
+    TEST_ASSERT_EQUAL_HEX8(0x33, color->color.b);
+    TEST_ASSERT_EQUAL_UINT16(0x0102, color->range.start);
+    TEST_ASSERT_EQUAL_UINT16(0x0304, color->range.length);
+}
+
+void test_color_sets_the_requested_range() {
+    PixelUtil pixels(8, 0, 0, 0);
+    output_hdr_t out = make_pixels_hdr(0);
+    output_hdr_t      *outputs[1]  = { &out };
+    program_tracker_t *trackers[1] = { nullptr };
+    void              *objects[1]  = { &pixels };
+    ProgramManager mgr(outputs, trackers, objects, 1, color_fns, 1);
+
+    byte buf[HMTL_MSG_PROGRAM_LEN];
+    make_color_msg(buf, sizeof(buf), 0, 0xff, 0x00, 0x00, /*start*/2, /*length*/3);
+    TEST_ASSERT_TRUE(send_program(mgr, buf));
+
+    TEST_ASSERT_TRUE(debug_log_contains("setRangeRGB [2+3] 0xff0000"));
+    for (uint16_t i = 2; i < 5; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xff, pixels.getPixel(i).r);
+    }
+    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(1).r);
+    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(5).r);
+}
+
+// A range beyond 255 is the entire reason the wire field is uint16_t. On a
+// default-flag build (PIXEL_ADDR_TYPE = uint8_t) it also exercises the
+// narrowing: 300 must not truncate to 44.
+void test_color_start_beyond_a_byte_is_not_truncated() {
+    PixelUtil pixels(400, 0, 0, 0);
+    output_hdr_t out = make_pixels_hdr(0);
+    output_hdr_t      *outputs[1]  = { &out };
+    program_tracker_t *trackers[1] = { nullptr };
+    void              *objects[1]  = { &pixels };
+    ProgramManager mgr(outputs, trackers, objects, 1, color_fns, 1);
+
+    byte buf[HMTL_MSG_PROGRAM_LEN];
+    make_color_msg(buf, sizeof(buf), 0, 0x00, 0xff, 0x00, /*start*/300, /*length*/2);
+    TEST_ASSERT_TRUE(send_program(mgr, buf));
+
+#ifdef BIG_PIXELS
+    // The full range survives: pixels 300-301 and nothing near the truncation.
+    TEST_ASSERT_EQUAL_HEX8(0xff, pixels.getPixel(300).g);
+    TEST_ASSERT_EQUAL_HEX8(0xff, pixels.getPixel(301).g);
+    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(44).g);
+#else
+    // PIXEL_ADDR_TYPE is uint8_t here, so setRangeRGB cannot express start=300
+    // at all. What must NOT happen is a silent wrap that paints pixel 44; the
+    // narrowing is bounded, so the message is rejected instead.
+    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(44).g);
+    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(300).g);
+    TEST_ASSERT_TRUE(debug_log_contains("COLOR start past addressable range:300"));
+#endif
+}
+
+// length == 0 keeps its documented meaning — the whole strip — and the clamp
+// must never manufacture one out of an over-long range.
+void test_color_zero_length_fills_whole_strip() {
+    PixelUtil pixels(8, 0, 0, 0);
+    output_hdr_t out = make_pixels_hdr(0);
+    output_hdr_t      *outputs[1]  = { &out };
+    program_tracker_t *trackers[1] = { nullptr };
+    void              *objects[1]  = { &pixels };
+    ProgramManager mgr(outputs, trackers, objects, 1, color_fns, 1);
+
+    byte buf[HMTL_MSG_PROGRAM_LEN];
+    make_color_msg(buf, sizeof(buf), 0, 0x00, 0x00, 0xff, /*start*/0, /*length*/0);
+    TEST_ASSERT_TRUE(send_program(mgr, buf));
+
+    TEST_ASSERT_TRUE(debug_log_contains("setAllRGB 0x0000ff"));
+    TEST_ASSERT_EQUAL_HEX8(0xff, pixels.getPixel(0).b);
+    TEST_ASSERT_EQUAL_HEX8(0xff, pixels.getPixel(7).b);
+}
+
+void test_color_overlong_length_is_clamped_not_zeroed() {
+    PixelUtil pixels(8, 0, 0, 0);
+    output_hdr_t out = make_pixels_hdr(0);
+    output_hdr_t      *outputs[1]  = { &out };
+    program_tracker_t *trackers[1] = { nullptr };
+    void              *objects[1]  = { &pixels };
+    ProgramManager mgr(outputs, trackers, objects, 1, color_fns, 1);
+
+    byte buf[HMTL_MSG_PROGRAM_LEN];
+    make_color_msg(buf, sizeof(buf), 0, 0xff, 0x00, 0x00, /*start*/6, /*length*/100);
+    TEST_ASSERT_TRUE(send_program(mgr, buf));
+
+    // Clamped to the two pixels that exist, NOT collapsed to length 0 (which
+    // would have flooded all eight).
+    TEST_ASSERT_TRUE(debug_log_contains("COLOR length clamped to:2"));
+    TEST_ASSERT_TRUE(debug_log_contains("setRangeRGB [6+2] 0xff0000"));
+    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(0).r);
+    TEST_ASSERT_EQUAL_HEX8(0xff, pixels.getPixel(6).r);
+    TEST_ASSERT_EQUAL_HEX8(0xff, pixels.getPixel(7).r);
+}
+
+// The migration case, verbatim: `HMTLClient -P color -C 255,0,0,0,10` used to
+// mean "red, start 0, length 10". Read at the new layout those five bytes are
+// start=2560, length=0 — and length 0 means the WHOLE STRIP. Rejecting on start
+// first is what stops a stale invocation from flooding the strip silently.
+void test_color_stale_five_byte_invocation_is_rejected_not_flooded() {
+    PixelUtil pixels(8, 0, 0, 0);
+    output_hdr_t out = make_pixels_hdr(0);
+    output_hdr_t      *outputs[1]  = { &out };
+    program_tracker_t *trackers[1] = { nullptr };
+    void              *objects[1]  = { &pixels };
+    ProgramManager mgr(outputs, trackers, objects, 1, color_fns, 1);
+
+    // Exactly the bytes the old CLI form produced: r=255 g=0 b=0 then 0, 10.
+    byte buf[HMTL_MSG_PROGRAM_LEN];
+    memset(buf, 0, sizeof(buf));
+    msg_program_t *msg = (msg_program_t *)(buf + sizeof(msg_hdr_t));
+    hmtl_program_fmt(msg, 0, PROGRAM_COLOR, (uint16_t)sizeof(buf));
+    msg->values[0] = 255; msg->values[1] = 0; msg->values[2] = 0;
+    msg->values[3] = 0;   msg->values[4] = 10;
+
+    TEST_ASSERT_TRUE(send_program(mgr, buf));
+
+    TEST_ASSERT_TRUE(debug_log_contains("COLOR start past addressable range:2560"));
+    TEST_ASSERT_FALSE(debug_log_contains("setAllRGB"));
+    TEST_ASSERT_FALSE(debug_log_contains("setRangeRGB"));
+    for (uint16_t i = 0; i < 8; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).r);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unity runner
 // ---------------------------------------------------------------------------
 
@@ -374,6 +548,13 @@ int main(int argc, char **argv) {
     RUN_TEST(test_circular_first_tick_lights_segment);
     RUN_TEST(test_circular_segment_advances_each_period);
     RUN_TEST(test_circular_segment_wraps_around);
+
+    RUN_TEST(test_color_wire_bytes_decode_little_endian);
+    RUN_TEST(test_color_sets_the_requested_range);
+    RUN_TEST(test_color_start_beyond_a_byte_is_not_truncated);
+    RUN_TEST(test_color_zero_length_fills_whole_strip);
+    RUN_TEST(test_color_overlong_length_is_clamped_not_zeroed);
+    RUN_TEST(test_color_stale_five_byte_invocation_is_rejected_not_flooded);
 
     return UNITY_END();
 }

@@ -13,12 +13,27 @@
 #   make REQUIRE_ANY_REAL=1     — require at least one of avr-g++ / xtensa
 #
 # Two axes, not one. Each toolchain is compiled BOTH with and without
-# -DBIG_PIXELS, because that flag is the only configuration in which
-# hmtl_program_color_t ever had the interior-padding bug: with the default
-# PIXEL_ADDR_TYPE = uint8_t the struct is 5 bytes with range at 3 on every ABI,
-# packed or not, so a default-flags-only sweep leaves that guard unable to fail.
-# Verified by deleting the packed attribute in a scratch copy: default flags
-# stay green, -DBIG_PIXELS goes red with two failures.
+# -DBIG_PIXELS.
+#
+# The axis was added because hmtl_program_color_t once embedded pixel_range_t
+# and so had a wire layout that followed the flag; only the -DBIG_PIXELS build
+# could catch it being unpacked. That struct now carries a fixed-width
+# wire_pixel_range_t and is 7 bytes with range at 3 under both settings, so that
+# justification is spent — and an axis whose two halves compile identical
+# layouts is a guard that cannot fail, which is the shape this subsystem keeps
+# producing.
+#
+# What keeps the axis honest now is the pair of pixel_range_t asserts in
+# HMTLPrograms.h: 2 bytes by default, 4 under -DBIG_PIXELS, one of which is
+# invisible to the other variant. That type is no longer on the wire, but it is
+# still what program_color() narrows INTO before calling setRangeRGB, so its
+# width is what decides whether a uint16_t range survives the conversion.
+#
+# Verified both ways rather than argued. Reverting the range to pixel_range_t
+# in a scratch copy now goes red under DEFAULT flags on host, avr-g++ and
+# xtensa — and stays green under -DBIG_PIXELS, where the old layout happened to
+# coincide with the new one. That is the exact inverse of the situation this
+# comment used to describe.
 #
 # A missing avr-g++ or xtensa-esp32-elf-g++ is reported and skipped by default,
 # because this has to be runnable on a machine that has neither. It is never

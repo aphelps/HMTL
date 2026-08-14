@@ -65,6 +65,10 @@ def handle_args():
     group.add_option("--sparkle", action="store_const",
                       dest="commandtype", const="sparkle",
                       help="Sparkle program")
+    group.add_option("--color", action="store_const",
+                      dest="commandtype", const="color",
+                      help="Set a range of pixels to one colour: "
+                           "-C r,g,b[,start,length] (length 0 = whole strip)")
     group.add_option("--sequence", action="store_const",
                       dest="commandtype", const="sequence",
                       help="Trigger outputs in sequence: -C out:dur_ms:val,out:dur_ms:val,...")
@@ -249,6 +253,22 @@ def main():
                                                int(pattern), int(flags))
         msg = program.prepare_msg(options.hmtladdress, options.output)
 
+    elif (options.commandtype == "color"):
+        parts = options.commandvalue.split(",")
+        if len(parts) not in (3, 5):
+            print("--color takes r,g,b or r,g,b,start,length; got %d values"
+                  % len(parts))
+            sys.exit(1)
+        (r, g, b) = parts[:3]
+        (start, length) = parts[3:5] if len(parts) == 5 else (0, 0)
+        print("Sending COLOR message. Address=%d Output=%d Value=%s start=%d length=%d%s" %
+              (options.hmtladdress, options.output,
+               [int(r), int(g), int(b)], int(start), int(length),
+               " (length 0 = whole strip)" if int(length) == 0 else ""))
+        program = HMTLprotocol.ProgramColor([int(r), int(g), int(b)],
+                                            int(start), int(length))
+        msg = program.prepare_msg(options.hmtladdress, options.output)
+
     elif (options.commandtype == "sequence"):
         steps = []
         for step_str in options.commandvalue.split(","):
@@ -272,6 +292,24 @@ def main():
         if not program_number:
             print("Unknown program value %s" % options.program)
         else:
+            if program_number == HMTLprotocol.ProgramGeneric.NAME_MAP["color"]:
+                # -P color sends 32 raw bytes, so it cannot know the layout
+                # changed underneath it. It did: the range is now two
+                # little-endian uint16_t, not two bytes, so the old
+                # `-C r,g,b,start,length` form decodes as a huge start and the
+                # firmware refuses it. A note in a PR body is not visible to
+                # whoever runs the shell alias; this line is.
+                print("WARNING: -P color sends raw bytes and the COLOR range is "
+                      "now two little-endian\n"
+                      "         uint16_t: 7 bytes, r g b start_lo start_hi "
+                      "length_lo length_hi.\n"
+                      "         A 5-byte `-C r,g,b,start,length` is MISREAD — "
+                      "the old start and\n"
+                      "         length land in the HIGH halves, so "
+                      "`-C 255,0,0,0,10` becomes\n"
+                      "         start=2560, length=0, which the module rejects "
+                      "on any strip\n"
+                      "         shorter than 2561 pixels. Use --color instead.")
             print("Sending generic program message. Address=%d Output=%d program=%s data=%s" %
                 (options.hmtladdress, options.output, options.program, commandvalues))
 

@@ -682,6 +682,57 @@ class ProgramCircular(Msg):
         return hdr.pack() + programhdr.pack() + self.pack()
 
 
+class ProgramColor(Msg):
+    """Set a range of pixels to one colour — hmtl_program_color_t.
+
+    THE RANGE FIELDS ARE TWO LITTLE-ENDIAN uint16_t, and this class exists
+    because they did not used to be. The C struct embedded pixel_range_t, whose
+    fields are PIXEL_ADDR_TYPE — uint8_t by default, uint16_t under
+    -DBIG_PIXELS — so the wire layout followed a build flag and two ATMega328
+    modules built with different flags disagreed about it.
+
+    Nothing here had a typed encoder before: the only in-tree producer was
+    `HMTLClient -P color -C r,g,b,start,length`, which goes through
+    ProgramGeneric's 32 raw bytes and therefore emitted the 5-byte form without
+    ever naming a layout. That is much of why the struct drifted unnoticed —
+    every other program has a class like this one, and COLOR did not.
+
+        7 bytes: r g b start_lo start_hi length_lo length_hi
+
+    length == 0 means the WHOLE strip, whatever start says; the firmware
+    rejects a start past the end rather than clamping it, so a stale 5-byte
+    invocation is refused loudly instead of flooding the strip.
+    """
+    TYPE = "PROGRAMCOLOR"
+    TYPE_NUM = ProgramGeneric.NAME_MAP["color"]
+
+    BASE_FORMAT = 'BBBHH'
+    BASE_FORMAT_LENGTH = 7
+    PADDING = ProgramHdr.MAX_DATA - BASE_FORMAT_LENGTH
+    FORMAT = "<%s%s" % (BASE_FORMAT, 'B' * PADDING)
+
+    def __init__(self, values, start=0, length=0):
+        self.values = values
+        self.start = start
+        self.length = length
+
+    def pack(self):
+        return struct.pack(self.FORMAT,
+                           self.values[0],
+                           self.values[1],
+                           self.values[2],
+                           self.start,
+                           self.length,
+                           *[0 for i in range(self.PADDING)])
+
+    def prepare_msg(self, address, output):
+        hdr = MsgHdr(length=MsgHdr.LENGTH + ProgramHdr.LENGTH,
+                     mtype=MSG_TYPE_OUTPUT,
+                     address=address)
+        programhdr = ProgramHdr(self.TYPE_NUM, output)
+        return hdr.pack() + programhdr.pack() + self.pack()
+
+
 class ProgramSequence(Msg):
     """Trigger multiple value-type outputs in sequence (e.g. fixed LEDs or poofers).
     Uses HMTL_NO_OUTPUT (255) as the registered output since the program manages
