@@ -713,9 +713,18 @@ class ProgramColor(Msg):
     -DBIG_PIXELS. Rejecting on the magnitude of start instead would let
     start=2560 through on a 3000-pixel module and flood it.
 
-    Raising here rather than letting the module drop it is the point of having
-    two implementations: an operator finds out at the CLI, not by watching a
-    strip do nothing.
+    What this class can and cannot catch, stated so the guarantee is not
+    over-read. It checks what is knowable WITHOUT the strip: field widths and
+    the start/length pairing. The module additionally rejects a start past the
+    end of its own strip, and one beyond what PIXEL_ADDR_TYPE can address
+    (255 on a default build) — neither of which a sender can evaluate, since it
+    does not know how many pixels the target has. So `ProgramColor([0, 0, 255],
+    start=300, length=10)` packs happily here and is dropped by a default-width
+    module, with a DEBUG1 line naming the reason.
+
+    Raising for what it CAN see is still the point of having two
+    implementations: an operator finds out at the CLI for every mistake that
+    does not depend on the target.
     """
     TYPE = "PROGRAMCOLOR"
     TYPE_NUM = ProgramGeneric.NAME_MAP["color"]
@@ -726,8 +735,25 @@ class ProgramColor(Msg):
     FORMAT = "<%s%s" % (BASE_FORMAT, 'B' * PADDING)
 
     def __init__(self, values, start=0, length=0):
-        # Rejected at construction, not at pack(), so the traceback points at
-        # the caller that chose the values.
+        # Everything is checked at construction, not at pack(), so the traceback
+        # points at the caller that chose the values.
+        #
+        # The width checks are not padding around the interesting rule: without
+        # them an out-of-range field escapes as a struct.error from pack(), and
+        # struct.error is NOT a ValueError, so a caller catching ValueError (as
+        # HMTLClient does) gets a raw traceback instead of its message. Making
+        # this the single failure mode is what lets that except clause mean
+        # something.
+        if len(values) != 3:
+            raise ValueError("COLOR needs exactly 3 colour values (r, g, b); "
+                             "got %d" % len(values))
+        for name, v in zip(("r", "g", "b"), values):
+            if not 0 <= v <= 0xff:
+                raise ValueError("COLOR %s must be 0-255; got %d" % (name, v))
+        for name, v in (("start", start), ("length", length)):
+            if not 0 <= v <= 0xffff:
+                raise ValueError("COLOR %s must be 0-65535 (it is a uint16_t on "
+                                 "the wire); got %d" % (name, v))
         if length == 0 and start != 0:
             raise ValueError(
                 "COLOR length 0 means the whole strip, so start must be 0; "

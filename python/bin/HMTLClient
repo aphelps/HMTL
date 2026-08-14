@@ -261,23 +261,34 @@ def main():
             print("--color takes r,g,b or r,g,b,start,length; got %d values"
                   % len(parts))
             sys.exit(1)
-        (r, g, b) = parts[:3]
-        (start, length) = parts[3:5] if len(parts) == 5 else (0, 0)
+        # Parsing and validation are separate steps with separate messages. One
+        # try around both meant a typo'd `--color 255,0,x` printed a bare
+        # "invalid literal for int()" under a comment claiming the module would
+        # drop the message — when nothing had been built to drop.
+        try:
+            nums = [int(p) for p in parts]
+        except ValueError:
+            print("--color values must be integers; got: %s"
+                  % options.commandvalue)
+            sys.exit(1)
+        (r, g, b) = nums[:3]
+        (start, length) = nums[3:5] if len(nums) == 5 else (0, 0)
+
         # Construct BEFORE announcing. Printing first meant a refused message
         # still reported "Sending ... (whole strip)", which is both untrue and
         # the exact description the validity rule exists to deny.
         try:
-            program = HMTLprotocol.ProgramColor([int(r), int(g), int(b)],
-                                                int(start), int(length))
+            program = HMTLprotocol.ProgramColor([r, g, b], start, length)
         except ValueError as e:
-            # The module would drop this message. Say so here rather than
-            # letting the operator watch a strip do nothing.
+            # ProgramColor range-checks every field, so this is the ONLY failure
+            # mode left here — a struct.error escaping to a traceback on the very
+            # path two warnings tell operators to use would be a poor migration.
             print("%s" % e)
             sys.exit(1)
         print("Sending COLOR message. Address=%d Output=%d Value=%s start=%d length=%d%s" %
               (options.hmtladdress, options.output,
-               [int(r), int(g), int(b)], int(start), int(length),
-               " (whole strip)" if int(length) == 0 else ""))
+               [r, g, b], start, length,
+               " (whole strip)" if length == 0 else ""))
         msg = program.prepare_msg(options.hmtladdress, options.output)
 
     elif (options.commandtype == "sequence"):

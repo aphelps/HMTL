@@ -17,9 +17,28 @@ Run:
     pytest hmtl/tests/test_protocol.py -v
 """
 
+import os
+import subprocess
+import sys
+
 import pytest
 
 import hmtl.HMTLprotocol as HMTLprotocol
+
+# Repo-relative, and PYTHONPATH is set explicitly when invoking the CLI below.
+# Not defensive tidiness: a hand-run of `bin/HMTLClient` during this work
+# imported an INSTALLED hmtl package instead of the checkout and reported
+# "no attribute 'ProgramColor'" — a CLI check proves nothing until you know
+# which copy of the library it loaded.
+_PYTHON_DIR = os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))))
+_CLI = os.path.join(_PYTHON_DIR, "bin", "HMTLClient")
+
+
+def _run_cli(*args):
+    env = dict(os.environ, PYTHONPATH=_PYTHON_DIR)
+    return subprocess.run([sys.executable, _CLI, *args],
+                          capture_output=True, text=True, env=env)
 
 
 # ---------------------------------------------------------------------------
@@ -116,15 +135,17 @@ def test_nonzero_start_with_a_real_length_is_unaffected():
 # The migration hazard, pinned rather than described
 # ---------------------------------------------------------------------------
 
-def test_stale_generic_invocation_now_encodes_a_rejectable_start():
+def test_stale_generic_invocation_now_encodes_a_rejectable_pairing():
     """`HMTLClient -P color -C 255,0,0,0,10` used to mean start=0, length=10.
 
-    Read at the current layout those same five bytes are start=2560,
-    length=0 — and length 0 means the whole strip. The firmware refuses a start
-    past the end for exactly this reason (see program_color in
-    HMTLPrograms.cpp, and test_color_stale_five_byte_invocation_is_rejected in
-    the native suite). This test pins the encoding half of that story so the
-    two sides cannot drift apart again.
+    Read at the current layout those same five bytes are start=2560, length=0.
+    That is the whole family, not one example: five bytes always leave wire
+    bytes 5-6 zero, so the wire length is ALWAYS 0 and the old start lands in
+    the high half of the new one. The firmware refuses zero length with a
+    nonzero start for exactly this reason (program_color in HMTLPrograms.cpp,
+    and test_color_stale_five_byte_invocation_is_rejected_not_flooded in the
+    native suite). This test pins the encoding half so the two sides cannot
+    drift apart again.
     """
     stale = HMTLprotocol.ProgramGeneric([255, 0, 0, 0, 10]).pack()
 
@@ -149,3 +170,48 @@ def test_typed_and_generic_forms_agree_when_the_generic_one_is_written_out():
         [1, 2, 3, 513 & 0xff, 513 >> 8, 1027 & 0xff, 1027 >> 8]).pack()
 
     assert typed == generic
+
+
+# ---------------------------------------------------------------------------
+# The CLI refusal path
+#
+# HMTLClient constructs before it announces, and range-checks before it
+# constructs. Both orderings shipped as bug fixes and neither was pinned:
+# printing first meant a refused message still reported "Sending ... (whole
+# strip)", and one try around the int() conversions meant a typo reported that
+# the module would drop a message that had never been built.
+# ---------------------------------------------------------------------------
+
+def test_cli_refuses_the_invalid_pairing_without_claiming_to_send():
+    r = _run_cli("--color", "-C", "255,0,0,5,0")
+
+    assert r.returncode == 1
+    assert "start must be 0" in r.stdout
+    # The ordering, not just the refusal: nothing may announce a send.
+    assert "Sending COLOR message" not in r.stdout
+
+
+def test_cli_reports_a_non_integer_as_a_parse_error_not_a_module_rejection():
+    r = _run_cli("--color", "-C", "255,0,x")
+
+    assert r.returncode == 1
+    assert "must be integers" in r.stdout
+    # The message that would be wrong here — nothing was built to be dropped.
+    assert "start must be 0" not in r.stdout
+    assert "invalid literal" not in r.stdout
+
+
+def test_cli_reports_an_out_of_range_field_rather_than_a_struct_traceback():
+    """struct.error is not a ValueError, so an unchecked field escaped raw."""
+    r = _run_cli("--color", "-C", "255,0,0,70000,5")
+
+    assert r.returncode == 1
+    assert "0-65535" in r.stdout
+    assert "Traceback" not in r.stderr
+
+
+def test_cli_accepts_a_valid_range():
+    r = _run_cli("--color", "-C", "255,0,0,5,3")
+
+    assert "Sending COLOR message" in r.stdout
+    assert "start=5 length=3" in r.stdout
