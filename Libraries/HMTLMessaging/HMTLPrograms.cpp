@@ -726,10 +726,14 @@ boolean program_color(msg_program_t *msg, program_tracker_t *tracker,
     DEBUG1_VALUELN(" numPixels:", num);
     return false;
   }
-  // Vacuous under -DBIG_PIXELS, where a uint16_t start always fits a uint16_t
-  // PIXEL_ADDR_TYPE, and load-bearing at the default width, where 300 would
-  // otherwise narrow to 44 and paint a range nobody asked for. Left as a plain
-  // runtime test rather than an #ifdef so the two widths read as one rule.
+  // Belt and braces, and SUBSUMED today - said plainly, because an earlier
+  // version of this comment claimed it was load-bearing and it is not.
+  // ArduinoLibs' PixelUtil stores num_pixels as PIXEL_ADDR_TYPE and its init()
+  // refuses more than 255 pixels unless BIG_PIXELS is set, so numPixels() can
+  // never exceed addr_max and the check above always fires first. It is kept
+  // because it is the only thing that would catch numPixels() and
+  // PIXEL_ADDR_TYPE drifting apart - the narrowing below is only safe while
+  // they agree - not because any current input reaches it.
   if (color->range.start > addr_max) {
     DEBUG1_VALUE("COLOR start not representable in PIXEL_ADDR_TYPE:",
                  color->range.start);

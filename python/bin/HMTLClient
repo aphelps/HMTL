@@ -314,7 +314,12 @@ def main():
         if not program_number:
             print("Unknown program value %s" % options.program)
         else:
-            if program_number == HMTLprotocol.ProgramGeneric.NAME_MAP["color"]:
+            # Gated on FIVE values, not on the program being COLOR. The 7-byte
+            # form hand-assembled through -P color is correct and is what
+            # test_typed_and_generic_forms_agree_... blesses; warning on it
+            # trains people to ignore the warning that matters.
+            if (program_number == HMTLprotocol.ProgramGeneric.NAME_MAP["color"]
+                    and commandvalues is not None and len(commandvalues) == 5):
                 # -P color sends 32 raw bytes, so it cannot know the layout
                 # changed underneath it. It did: the range is now two
                 # little-endian uint16_t, not two bytes, so the old

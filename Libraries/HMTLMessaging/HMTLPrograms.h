@@ -40,9 +40,11 @@
  *
  * hmtl_program_color_t is now 7 B with range at 3 EVERYWHERE, on both settings
  * of -DBIG_PIXELS, because its range no longer borrows the flag-dependent
- * pixel_range_t; see wire_pixel_range_t below. The two rows above are what it
- * was, kept because the -DBIG_PIXELS row is the reason tests/layout/ sweeps
- * that flag as a second axis.
+ * pixel_range_t; see wire_pixel_range_t below. The two rows above are kept as
+ * history: they are why tests/layout/ grew a -DBIG_PIXELS axis in the first
+ * place. That axis is now held up by the pixel_range_t asserts at the foot of
+ * this header instead - this struct can no longer fail differently under the
+ * two flags, which is exactly what tests/layout/Makefile says.
  *
  * and four more differed in size only, which still matters because sizeof feeds
  * the length a peer checks: timed_change 10/12, fade 11/12, sparkle 13/14,

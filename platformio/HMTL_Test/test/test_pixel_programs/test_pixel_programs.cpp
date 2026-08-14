@@ -428,11 +428,22 @@ void test_color_sets_the_requested_range() {
     TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(5).r);
 }
 
-// A range beyond 255 is the entire reason the wire field is uint16_t. On a
-// default-flag build (PIXEL_ADDR_TYPE = uint8_t) it also exercises the
-// narrowing: 300 must not truncate to 44.
+// A range beyond 255 is the entire reason the wire field is uint16_t.
+//
+// The strip size differs per flag ON PURPOSE, and an earlier version of this
+// test got that wrong: it built 400 pixels under both, but a default-flag build
+// CANNOT have 400 pixels — ArduinoLibs' PixelUtil holds num_pixels as
+// PIXEL_ADDR_TYPE and init() rejects more than 255. The old stub allowed it, so
+// the test asserted behaviour in a strip no firmware can have, and "rejected
+// because 300 is not representable" was an outcome only the stub could produce.
+// What a default build really does with start=300 is reject it for being past
+// the end of a strip that cannot be that long.
 void test_color_start_beyond_a_byte_is_not_truncated() {
+#ifdef BIG_PIXELS
     PixelUtil pixels(400, 0, 0, 0);
+#else
+    PixelUtil pixels(200, 0, 0, 0);   // the most a uint8_t strip can hold, near enough
+#endif
     output_hdr_t out = make_pixels_hdr(0);
     output_hdr_t      *outputs[1]  = { &out };
     program_tracker_t *trackers[1] = { nullptr };
@@ -444,19 +455,54 @@ void test_color_start_beyond_a_byte_is_not_truncated() {
     TEST_ASSERT_TRUE(send_program(mgr, buf));
 
 #ifdef BIG_PIXELS
-    // The full range survives: pixels 300-301 and nothing near the truncation.
+    // The payoff of the widening: the full range survives, and nothing lands
+    // near where a truncation to uint8_t would have put it.
     TEST_ASSERT_EQUAL_HEX8(0xff, pixels.getPixel(300).g);
     TEST_ASSERT_EQUAL_HEX8(0xff, pixels.getPixel(301).g);
     TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(44).g);
 #else
-    // PIXEL_ADDR_TYPE is uint8_t here, so setRangeRGB cannot express start=300
-    // at all. What must NOT happen is a silent wrap that paints pixel 44; the
-    // narrowing is bounded, so the message is rejected instead.
+    // Rejected, and specifically NOT truncated to pixel 44.
     TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(44).g);
-    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(300).g);
-    TEST_ASSERT_TRUE(debug_log_contains(
-        "COLOR start not representable in PIXEL_ADDR_TYPE:300"));
+    TEST_ASSERT_TRUE(debug_log_contains("COLOR start past end of strip:300"));
 #endif
+}
+
+// The two rejection branches that a real strip can actually reach. Coverage was
+// inverted before this: the unreachable representability branch had two tests
+// and these had none.
+void test_color_start_past_the_end_of_the_strip_is_rejected() {
+    PixelUtil pixels(8, 0, 0, 0);
+    output_hdr_t out = make_pixels_hdr(0);
+    output_hdr_t      *outputs[1]  = { &out };
+    program_tracker_t *trackers[1] = { nullptr };
+    void              *objects[1]  = { &pixels };
+    ProgramManager mgr(outputs, trackers, objects, 1, color_fns, 1);
+
+    byte buf[HMTL_MSG_PROGRAM_LEN];
+    make_color_msg(buf, sizeof(buf), 0, 0xff, 0x00, 0x00, /*start*/8, /*length*/1);
+    TEST_ASSERT_TRUE(send_program(mgr, buf));
+
+    TEST_ASSERT_TRUE(debug_log_contains("COLOR start past end of strip:8"));
+    TEST_ASSERT_FALSE(debug_log_contains("setRangeRGB"));
+    TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(7).r);
+}
+
+void test_color_on_an_empty_output_draws_nothing() {
+    PixelUtil pixels(0, 0, 0, 0);
+    output_hdr_t out = make_pixels_hdr(0);
+    output_hdr_t      *outputs[1]  = { &out };
+    program_tracker_t *trackers[1] = { nullptr };
+    void              *objects[1]  = { &pixels };
+    ProgramManager mgr(outputs, trackers, objects, 1, color_fns, 1);
+
+    // start 0 / length 0 is the "whole strip" form — the one input that would
+    // reach setAllRGB and iterate, if the empty case were not caught first.
+    byte buf[HMTL_MSG_PROGRAM_LEN];
+    make_color_msg(buf, sizeof(buf), 0, 0xff, 0x00, 0x00, /*start*/0, /*length*/0);
+    TEST_ASSERT_TRUE(send_program(mgr, buf));
+
+    TEST_ASSERT_TRUE(debug_log_contains("COLOR: output has no pixels"));
+    TEST_ASSERT_FALSE(debug_log_contains("setAllRGB"));
 }
 
 // length == 0 keeps its documented meaning — the whole strip — and the clamp
@@ -586,6 +632,8 @@ int main(int argc, char **argv) {
     RUN_TEST(test_color_wire_bytes_decode_little_endian);
     RUN_TEST(test_color_sets_the_requested_range);
     RUN_TEST(test_color_start_beyond_a_byte_is_not_truncated);
+    RUN_TEST(test_color_start_past_the_end_of_the_strip_is_rejected);
+    RUN_TEST(test_color_on_an_empty_output_draws_nothing);
     RUN_TEST(test_color_zero_length_fills_whole_strip);
     RUN_TEST(test_color_overlong_length_is_clamped_not_zeroed);
     RUN_TEST(test_color_zero_length_with_nonzero_start_is_rejected);

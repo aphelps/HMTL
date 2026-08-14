@@ -92,9 +92,24 @@ class PixelUtil {
 public:
     PixelUtil() : _num(0), _leds(nullptr) {}
 
+    // _num is PIXEL_ADDR_TYPE, and that is a correction rather than tidiness.
+    // It used to be an unconditional uint16_t, which let tests build a
+    // 400-pixel strip on a DEFAULT-flag build — a configuration the real
+    // library refuses: ArduinoLibs' PixelUtil stores num_pixels as
+    // PIXEL_ADDR_TYPE and init() rejects _numPixels > 255 unless BIG_PIXELS is
+    // set. A test written against the old stub asserted behaviour in a strip
+    // the firmware cannot have, which is the same "checked against an
+    // environment that will never occur" shape this suite keeps finding.
     PixelUtil(uint16_t n, uint8_t /*data*/, uint8_t /*clock*/, uint8_t /*order*/ = 0)
-        : _num(n), _leds(new CRGB[n]())
-    {}
+        : _num((PIXEL_ADDR_TYPE)n), _leds(new CRGB[(PIXEL_ADDR_TYPE)n]())
+    {
+        // The real init() treats this as a hard error; a test that asks for a
+        // strip this build cannot address is a broken test, so say so loudly
+        // rather than silently truncating as the cast alone would.
+        if (n > (uint16_t)(PIXEL_ADDR_TYPE)~(PIXEL_ADDR_TYPE)0) {
+            _debug_emit("PixelUtil stub: too many pixels for PIXEL_ADDR_TYPE", 1);
+        }
+    }
 
     ~PixelUtil() { delete[] _leds; }
 
@@ -174,6 +189,6 @@ public:
     }
 
 private:
-    uint16_t _num;
+    PIXEL_ADDR_TYPE _num;
     CRGB    *_leds;
 };
