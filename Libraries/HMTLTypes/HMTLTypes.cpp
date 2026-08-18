@@ -148,6 +148,24 @@ int hmtl_write_config(config_hdr_t *hdr, output_hdr_t *outputs[])
 {
   int addr;
 
+  /*
+   * Validate every output BEFORE touching EEPROM.  hmtl_output_size() returns
+   * -1 for any output type compiled out of this build; passing that to
+   * EEPROM_safe_write() as a length writes a malformed record while reporting
+   * success.  Pre-scanning makes the refusal atomic: a config the build
+   * cannot fully size leaves EEPROM untouched.
+   */
+  if (outputs != NULL) {
+    for (int i = 0; i < hdr->num_outputs; i++) {
+      if (hmtl_output_size(outputs[i]) < 0) {
+        DEBUG1_VALUELN("hmtl_write_config: cannot size output type=",
+                       outputs[i]->type);
+        DEBUG_ERR("hmtl_write_config: output type disabled in this build");
+        return -3;
+      }
+    }
+  }
+
   EEPROM_init();
 
   hdr->magic = HMTL_CONFIG_MAGIC;
@@ -156,6 +174,7 @@ int hmtl_write_config(config_hdr_t *hdr, output_hdr_t *outputs[])
                            (uint8_t *)hdr, sizeof (config_hdr_t));
   if (addr < 0) {
     DEBUG_ERR("hmtl_write_config: failed to write config to EEProm");
+    EEPROM_end();
     return -1;
   }
 
@@ -166,6 +185,7 @@ int hmtl_write_config(config_hdr_t *hdr, output_hdr_t *outputs[])
                                hmtl_output_size(output));
       if (addr < 0) {
         DEBUG_ERR("hmtl_write_config: failed to write outputs to EEProm");
+        EEPROM_end();
         return -2;
       }
     }
@@ -621,7 +641,9 @@ void hmtl_print_header(config_hdr_t *hdr) {
 void hmtl_print_output(output_hdr_t *out) {
 #if DEBUG_LEVEL >= 3
   DEBUG3_VALUE("  output ", out->output);
-  DEBUG3_VALUE(" offset=", (int)out);
+  /* This is a RAM address, not an EEPROM offset; the truncating cast keeps it
+   * printable on 64-bit hosts. */
+  DEBUG3_VALUE(" addr=", (int)(uintptr_t)out);
   DEBUG3_VALUE(" type=", out->type);
   DEBUG3_PRINT(" - ");
   switch (out->type) {

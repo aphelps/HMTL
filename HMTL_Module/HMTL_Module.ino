@@ -244,6 +244,17 @@ void setup() {
   }
 #endif
 
+  /*
+   * Which sockets got registered, and from which outputs -- otherwise a
+   * forwarded message's egress socket is invisible.
+   */
+  DEBUG2_VALUE("Sockets configured:", num_sockets);
+  DEBUG2_VALUE(" outputs_found:", outputs_found);
+#ifdef USE_RS485
+  DEBUG2_VALUE(" has_rs485:", (outputs_found & (1 << HMTL_OUTPUT_RS485)) ? 1 : 0);
+#endif
+  DEBUG2_PRINTLN("");
+
   if (num_sockets == 0) {
     DEBUG_ERR("No sockets configured");
     DEBUG_ERR_STATE(2);
@@ -284,6 +295,16 @@ byte get_button_value() {
 void status_update() {
   DEBUG3_PRINTLN("Status:");
   DEBUG3_VALUELN(" * uptime:", millis())
+
+#ifdef USE_RS485
+  /*
+   * Bus health. Framing errors are counted below getMsg() and never reach a
+   * debug print on their own; surfacing the counters distinguishes a bus
+   * delivering unframeable bytes (climbing) from one delivering nothing (0).
+   */
+  DEBUG3_VALUE(" * rs485 framing_errors:", rs485.getFramingErrorCount());
+  DEBUG3_VALUELN(" rejects:", rs485.getRejectCount());
+#endif
 
 #if defined(ESP32)
 api_status();

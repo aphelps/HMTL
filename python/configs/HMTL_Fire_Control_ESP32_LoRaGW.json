@@ -1,0 +1,59 @@
+{
+    "info": "ESP32 Fire Control on a SparkFun ESP32 LoRa 1-CH Gateway. OBJECT_TYPE=5 (TOUCH_CONTROLLER), CONTROL_MODE=4 (CONTROL_SINGLE_QUINT). The on-board RFM95 reserves GPIO 12/13/14/16/26/32/33. Pixel pins must match the build's pixel flags (FastLED is templated on compile-time pins).",
+    "header": {
+        "protocol_version": 3,
+        "hardware_version": 5,
+        "address": 129,
+        "device_id": 129,
+        "baud": 115200,
+        "flags": 0
+    },
+    "outputs": [
+        {
+            "type": "rs485",
+            "recvpin": 5,
+            "xmitpin": 19,
+            "enablepin": 18
+        },
+        {
+            "type": "pixels",
+            "clockpin": 23,
+            "datapin": 25,
+            "numpixels": 12,
+            "rgbtype": 0
+        },
+        {
+            "type": "mpr121",
+            "irqpin": 4,
+            "useinterrupt": 1,
+            "trigger": [
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3
+            ],
+            "release": [
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1
+            ]
+        }
+    ]
+}

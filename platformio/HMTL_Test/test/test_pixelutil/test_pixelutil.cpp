@@ -116,6 +116,71 @@ void test_set_range_rgb_log() {
     TEST_ASSERT_TRUE(debug_log_contains("setRangeRGB [2+3] 0xff0000"));
 }
 
+// length == 0 means the WHOLE strip — 0..num-1 regardless of start, NOT start..num-1.
+// The non-zero start is the point of the test: the stub used to fill start..num-1 here,
+// silently diverging from the real PixelUtil::setRangeRGB it stands in for.
+void test_set_range_rgb_zero_length_fills_whole_strip() {
+    PixelUtil pixels(8, 0, 0, 0);
+    pixel_range_t range = {3, 0};
+    pixels.setRangeRGB(range, CRGB(0x01, 0x02, 0x03));
+
+    for (uint16_t i = 0; i < 8; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x01, pixels.getPixel(i).r);
+        TEST_ASSERT_EQUAL_HEX8(0x02, pixels.getPixel(i).g);
+        TEST_ASSERT_EQUAL_HEX8(0x03, pixels.getPixel(i).b);
+    }
+}
+
+// start >= numPixels() writes nothing — neither a clamped write nor the accidental
+// whole-strip flood the real implementation used to produce for start == numPixels().
+// The guard's debug line is asserted so a skipped call can't fake a pass.
+void test_set_range_rgb_start_at_end_writes_nothing() {
+    PixelUtil pixels(8, 0, 0, 0);
+
+    pixel_range_t range = {8, 5};  // start == numPixels() exactly
+    pixels.setRangeRGB(range, CRGB(0xff, 0xff, 0xff));
+    for (uint16_t i = 0; i < 8; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).r);
+        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).g);
+        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).b);
+    }
+    TEST_ASSERT_TRUE(debug_log_contains("setRangeRGB: start past end:8"));
+}
+
+void test_set_range_rgb_start_far_past_end_writes_nothing() {
+    PixelUtil pixels(8, 0, 0, 0);
+
+    pixel_range_t range = {200, 5};  // start far past the end
+    pixels.setRangeRGB(range, CRGB(0xff, 0xff, 0xff));
+    for (uint16_t i = 0; i < 8; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).r);
+        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).g);
+        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).b);
+    }
+    TEST_ASSERT_TRUE(debug_log_contains("setRangeRGB: start past end:200"));
+}
+
+// An over-long range clamps to the end of the strip: {5,10} on 8 pixels writes
+// 5..7 only — earlier pixels untouched, no wrap-around back to the front.
+void test_set_range_rgb_overlong_clamps_to_end() {
+    PixelUtil pixels(8, 0, 0, 0);
+    pixel_range_t range = {5, 10};
+    pixels.setRangeRGB(range, CRGB(0xaa, 0xbb, 0xcc));
+
+    // pixels 5..7 written
+    for (uint16_t i = 5; i < 8; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0xaa, pixels.getPixel(i).r);
+        TEST_ASSERT_EQUAL_HEX8(0xbb, pixels.getPixel(i).g);
+        TEST_ASSERT_EQUAL_HEX8(0xcc, pixels.getPixel(i).b);
+    }
+    // pixels 0..4 untouched — in particular no wrap-around onto the strip front
+    for (uint16_t i = 0; i < 5; i++) {
+        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).r);
+        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).g);
+        TEST_ASSERT_EQUAL_HEX8(0x00, pixels.getPixel(i).b);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // update — dumps all pixels as a hex array on one line
 // ---------------------------------------------------------------------------
@@ -181,6 +246,10 @@ int main(int argc, char **argv) {
 
     RUN_TEST(test_set_range_rgb_stored);
     RUN_TEST(test_set_range_rgb_log);
+    RUN_TEST(test_set_range_rgb_zero_length_fills_whole_strip);
+    RUN_TEST(test_set_range_rgb_start_at_end_writes_nothing);
+    RUN_TEST(test_set_range_rgb_start_far_past_end_writes_nothing);
+    RUN_TEST(test_set_range_rgb_overlong_clamps_to_end);
 
     RUN_TEST(test_update_emits_pixels_line);
     RUN_TEST(test_update_hex_values_present);

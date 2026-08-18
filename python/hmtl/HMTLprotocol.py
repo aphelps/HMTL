@@ -448,7 +448,12 @@ class DumpConfigHdr(Msg):
 
     @classmethod
     def from_data(cls, data, offset=0):
-        if ord(data[0]) == HEADER_MAGIC:
+        # Honour offset rather than ignoring it: previously a nonzero offset
+        # silently tested the wrong byte and misrouted to full_config().
+        if offset:
+            data = data[offset:]
+        # Note: indexing a bytes object yields an int in python3
+        if data[0] == HEADER_MAGIC:
             config = ConfigHeaderMain.from_data(data)
         else:
             config = cls.full_config(data)

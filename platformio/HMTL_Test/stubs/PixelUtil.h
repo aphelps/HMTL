@@ -100,6 +100,14 @@ public:
     // set. A test written against the old stub asserted behaviour in a strip
     // the firmware cannot have, which is the same "checked against an
     // environment that will never occur" shape this suite keeps finding.
+    /* Real HMTLTypes.cpp's pixel setup path calls init() on a default-constructed
+     * instance; mirror the allocating constructor. */
+    void init(uint16_t n, uint8_t /*data*/, uint8_t /*clock*/, uint8_t /*order*/ = 0) {
+        delete[] _leds;
+        _num = n;
+        _leds = new CRGB[n]();
+    }
+
     PixelUtil(uint16_t n, uint8_t /*data*/, uint8_t /*clock*/, uint8_t /*order*/ = 0)
         : _num((PIXEL_ADDR_TYPE)n), _leds(new CRGB[(PIXEL_ADDR_TYPE)n]())
     {
@@ -177,10 +185,14 @@ public:
     void setRangeRGB(pixel_range_t range, CRGB crgb) {
         if (range.length == 0) {
             setAllRGB(crgb.r, crgb.g, crgb.b);
-        } else if (range.start < _num) {
-            uint16_t avail = _num - (uint16_t)range.start;
+        } else if (range.start >= _num) {
+            // Mirror the real implementation's guard diagnostic so tests can
+            // observe that this branch ran (not merely that no pixels changed).
+            DEBUG1_VALUELN("setRangeRGB: start past end:", range.start);
+        } else {
+            uint16_t avail = _num - range.start;
             uint16_t len   = (range.length < avail) ? range.length : avail;
-            for (uint16_t i = range.start; i < range.start + len; i++) _leds[i] = crgb;
+            for (uint16_t i = 0; i < len; i++) _leds[range.start + i] = crgb;
         }
 
         char label[32];
