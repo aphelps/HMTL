@@ -129,10 +129,23 @@ public:
         setAllRGB(pixel_red(color), pixel_green(color), pixel_blue(color));
     }
 
+    // Mirrors the real PixelUtil::setRangeRGB's three-branch shape exactly:
+    // length == 0 means the WHOLE strip (0.._num-1, regardless of start),
+    // start >= _num draws nothing, and an over-long range clamps to the end.
+    // (The stub used to treat length == 0 as start.._num-1 — different
+    // behaviour from the implementation it stands in for.)
     void setRangeRGB(pixel_range_t range, CRGB crgb) {
-        uint16_t end = (range.length == 0) ? _num : range.start + range.length;
-        if (end > _num) end = _num;
-        for (uint16_t i = range.start; i < end; i++) _leds[i] = crgb;
+        if (range.length == 0) {
+            setAllRGB(crgb.r, crgb.g, crgb.b);
+        } else if (range.start >= _num) {
+            // Mirror the real implementation's guard diagnostic so tests can
+            // observe that this branch ran (not merely that no pixels changed).
+            DEBUG1_VALUELN("setRangeRGB: start past end:", range.start);
+        } else {
+            uint16_t avail = _num - range.start;
+            uint16_t len   = (range.length < avail) ? range.length : avail;
+            for (uint16_t i = 0; i < len; i++) _leds[range.start + i] = crgb;
+        }
 
         char label[32];
         snprintf(label, sizeof(label), "setRangeRGB [%u+%u]", range.start, range.length);
