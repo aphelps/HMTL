@@ -5,9 +5,20 @@
 // translation unit, including Unity's C files.  Guard all C++-specific
 // content with #ifdef __cplusplus so C compilations see only the safe parts.
 #pragma once
+
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* pin-mode constants + writes used by HMTLTypes.cpp's output setup.
+ * Named parameters: this header is also seen by C translation units. */
+#ifndef OUTPUT
+#define INPUT  0x0
+#define OUTPUT 0x1
+#define INPUT_PULLUP 0x2
+#endif
+static inline void pinMode(uint8_t pin, uint8_t mode) { (void)pin; (void)mode; }
+static inline void analogWrite(uint8_t pin, int val)  { (void)pin; (void)val; }
 
 #ifdef __cplusplus
 

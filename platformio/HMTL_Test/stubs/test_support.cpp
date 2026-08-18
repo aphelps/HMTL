@@ -137,44 +137,9 @@ FakeSerial    Serial;
 // HMTLPrograms in the tests.
 // ---------------------------------------------------------------------------
 
-void hmtl_set_output_rgb(output_hdr_t *output, void *object, uint8_t value[3]) {
-    switch (output->type) {
-        case HMTL_OUTPUT_VALUE: {
-            config_value_t *val = (config_value_t *)output;
-            val->value = value[0];
-            break;
-        }
-        case HMTL_OUTPUT_RGB: {
-            config_rgb_t *rgb = (config_rgb_t *)output;
-            rgb->values[0] = value[0];
-            rgb->values[1] = value[1];
-            rgb->values[2] = value[2];
-            break;
-        }
-        case HMTL_OUTPUT_PIXELS: {
-            PixelUtil *pixels = (PixelUtil *)object;
-            if (pixels) pixels->setAllRGB(value[0], value[1], value[2]);
-            break;
-        }
-        default:
-            break;
-    }
-}
-
-boolean hmtl_validate_header(config_hdr_t *hdr) {
-    if (hdr->magic != HMTL_CONFIG_MAGIC) return false;
-    config_hdr_v3_t *h = (config_hdr_v3_t *)hdr;
-    return (hdr->protocol_version == 3) && (h->num_outputs <= HMTL_MAX_OUTPUTS);
-}
-
-int hmtl_output_size(output_hdr_t *output) {
-    switch (output->type) {
-        case HMTL_OUTPUT_VALUE:  return sizeof(config_value_t);
-        case HMTL_OUTPUT_RGB:    return sizeof(config_rgb_t);
-        case HMTL_OUTPUT_PIXELS: return sizeof(config_pixels_t);
-        default:                 return -1;
-    }
-}
+/* hmtl_set_output_rgb / hmtl_validate_header / hmtl_output_size are no longer
+ * stubbed here: the real HMTLTypes.cpp is compiled into the native build (it
+ * is what the config regression tests exercise). */
 
 // ---------------------------------------------------------------------------
 // HMTLMessaging.cpp — hmtl_msg_fmt is called by program_*_fmt functions
@@ -205,3 +170,52 @@ void    print_hex_string(const byte *, int)     {}
 
 int eeprom_read_objects(int, byte *, int)  { return -1; }
 int eeprom_write_objects(int, byte *, int) { return -1; }
+
+/* ---- In-memory EEPROM (see EEPromUtils.h stub) ---------------------------- */
+#include "EEPromUtils.h"
+
+#define EEPROM_STUB_SIZE 4096
+static uint8_t eeprom_stub_mem[EEPROM_STUB_SIZE];
+
+void eeprom_stub_reset() { memset(eeprom_stub_mem, 0, sizeof(eeprom_stub_mem)); }
+uint8_t *eeprom_stub_raw() { return eeprom_stub_mem; }
+
+bool EEPROM_init()   { return true; }
+bool EEPROM_commit() { return true; }
+void EEPROM_end()    {}
+void EEPROM_dump(int location) { (void)location; }
+
+static uint8_t eeprom_stub_crc(const uint8_t *data, int len) {
+  uint8_t crc = 0x5A;
+  for (int i = 0; i < len; i++) crc = (uint8_t)((crc << 1) ^ data[i] ^ (crc >> 7));
+  return crc;
+}
+
+int EEPROM_safe_write(int location, uint8_t *data, int datalen) {
+  /* Mirrors the real library's bounds behaviour, including that a negative
+   * datalen historically slipped straight through -- the guard against that
+   * lives (now) in hmtl_write_config, which is what the config tests pin. */
+  if (datalen < 0) return -1;  /* stub refuses; real lib wrote a poisoned record */
+  if (location + datalen + EEPROM_WRAPPER_SIZE > EEPROM_STUB_SIZE) return -1;
+  eeprom_stub_mem[location++] = EEPROM_START_BYTE;
+  eeprom_stub_mem[location++] = (uint8_t)datalen;
+  for (int i = 0; i < datalen; i++) eeprom_stub_mem[location++] = data[i];
+  eeprom_stub_mem[location++] = eeprom_stub_crc(data, datalen);
+  return location;
+}
+
+int EEPROM_safe_read(int location, uint8_t *buff, int bufflen) {
+  /* Error codes mirror the real EEPromUtils.cpp so tests cannot come to
+   * depend on stub-only values: -1 not-START, -2 bad length/bounds, -3 CRC,
+   * -4 exceeds device end. */
+  if (location + EEPROM_WRAPPER_SIZE > EEPROM_STUB_SIZE) return -4;
+  if (eeprom_stub_mem[location] != EEPROM_START_BYTE) return -1;
+  location++;
+  int datalen = eeprom_stub_mem[location++];
+  if (datalen > bufflen) return -2;
+  if (location + datalen + 1 > EEPROM_STUB_SIZE) return -4;
+  for (int i = 0; i < datalen; i++) buff[i] = eeprom_stub_mem[location++];
+  if (eeprom_stub_mem[location++] != eeprom_stub_crc(buff, datalen)) return -3;
+  return location;
+}
+

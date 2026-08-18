@@ -38,6 +38,7 @@ NA	*32/0x20	2            	Taller stand (Board v4)
 
 ==HMTL Fire Control===
 128 	128/0x80  	3            	HMTL Fire Control Module 1
+129 	129/0x81  	3   	5	ESP32 Fire Control (SparkFun LoRa 1-CH Gateway, WROOM-32E)
 
 ==Sound Unit==
 8   	8/0x8     	3            	First Sound Unit

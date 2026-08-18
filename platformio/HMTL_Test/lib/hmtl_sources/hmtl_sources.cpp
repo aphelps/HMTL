@@ -7,5 +7,6 @@
  */
 
 #include "../../stubs/test_support.cpp"
+#include "../../../../Libraries/HMTLTypes/HMTLTypes.cpp"
 #include "../../../../Libraries/HMTLMessaging/ProgramManager.cpp"
 #include "../../../../Libraries/HMTLMessaging/HMTLPrograms.cpp"
