@@ -103,9 +103,22 @@ public:
     /* Real HMTLTypes.cpp's pixel setup path calls init() on a default-constructed
      * instance; mirror the allocating constructor. */
     void init(uint16_t n, uint8_t /*data*/, uint8_t /*clock*/, uint8_t /*order*/ = 0) {
+        // Narrows and complains exactly as the constructor does. Left as a bare
+        // `_num = n; new CRGB[n]()` this allocates n elements while _num holds
+        // the truncated value, and silently re-admits the impossible strips the
+        // constructor exists to reject — a test can simply reach the strip
+        // through init() instead. The two entry points must agree.
         delete[] _leds;
-        _num = n;
-        _leds = new CRGB[n]();
+        _num  = (PIXEL_ADDR_TYPE)n;
+        _leds = new CRGB[(PIXEL_ADDR_TYPE)n]();
+        if (n > (uint16_t)(PIXEL_ADDR_TYPE)~(PIXEL_ADDR_TYPE)0) {
+            fprintf(stderr,
+                    "PixelUtil stub: init(%u) exceeds PIXEL_ADDR_TYPE max %u -- "
+                    "truncated to %u. The real init() rejects this.\n",
+                    (unsigned)n,
+                    (unsigned)(uint16_t)(PIXEL_ADDR_TYPE)~(PIXEL_ADDR_TYPE)0,
+                    (unsigned)_num);
+        }
     }
 
     PixelUtil(uint16_t n, uint8_t /*data*/, uint8_t /*clock*/, uint8_t /*order*/ = 0)
