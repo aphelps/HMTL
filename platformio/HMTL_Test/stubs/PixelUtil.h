@@ -121,33 +121,18 @@ public:
         }
     }
 
-    PixelUtil(uint16_t n, uint8_t /*data*/, uint8_t /*clock*/, uint8_t /*order*/ = 0)
-        : _num((PIXEL_ADDR_TYPE)n), _leds(new CRGB[(PIXEL_ADDR_TYPE)n]())
+    // Delegates to init(), mirroring the real library (ArduinoLibs
+    // PixelUtil.cpp:27-32, whose ctor is `initialized = false; init(...)`).
+    //
+    // This is not stylistic. Before delegating, init() had NO test executing it:
+    // every test built a strip through the constructor, so a mutation inside
+    // init() left the whole suite green. That is the guard-that-cannot-fail
+    // shape this PR exists to remove, reintroduced in the fix for it. With the
+    // delegation, breaking init() reddens 23 tests.
+    PixelUtil(uint16_t n, uint8_t data, uint8_t clock, uint8_t order = 0)
+        : _num(0), _leds(nullptr)
     {
-        // The real init() treats this as a hard error; a test that asks for a
-        // strip this build cannot address is a broken test, so say so where it
-        // will be SEEN rather than silently truncating as the cast alone would.
-        //
-        // stderr rather than _debug_emit, because the debug log is a buffer
-        // tests query on purpose: a complaint written only there is invisible
-        // unless a test happens to ask, and this exact case had already fired
-        // unnoticed (a 3000-pixel strip truncating to 184) while the suite
-        // reported all green.
-        //
-        // Do not rely on this ALONE, though — verified: `pio test` does not
-        // surface a passing test's stderr, so the thing that actually catches a
-        // shrunk strip is a TEST_ASSERT on numPixels() at the setup, which
-        // test_color_stale_five_byte_invocation_is_rejected_not_flooded now
-        // carries. This line is for whoever is already staring at the output.
-        if (n > (uint16_t)(PIXEL_ADDR_TYPE)~(PIXEL_ADDR_TYPE)0) {
-            fprintf(stderr,
-                    "PixelUtil stub: %u pixels requested but PIXEL_ADDR_TYPE "
-                    "addresses at most %u -- truncated to %u. The real init() "
-                    "rejects this; the test's premise is wrong.\n",
-                    (unsigned)n,
-                    (unsigned)(uint16_t)(PIXEL_ADDR_TYPE)~(PIXEL_ADDR_TYPE)0,
-                    (unsigned)_num);
-        }
+        init(n, data, clock, order);
     }
 
     ~PixelUtil() { delete[] _leds; }
