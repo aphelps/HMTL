@@ -10,6 +10,7 @@
 
 from multiprocessing.connection import Listener
 import threading
+import traceback
 
 from hmtl.HMTLSerial import *
 from hmtl.InputBuffer import InputItem
@@ -25,6 +26,16 @@ class HMTLServer():
 
     # Default logging color
     LOGGING_COLOR = TimedLogger.RED
+
+    # How long to wait for a response from the device.  This must allow for a
+    # message being relayed over RS485 to a remote module and back, which is
+    # considerably slower than a reply from the directly attached module.
+    DATA_TIMEOUT = 1.0
+
+    # Timeout used when sweeping addresses that are mostly expected to be
+    # empty.  Kept short deliberately: the scanner pays this cost once per
+    # unused address per pass, and holds serial_cv while it waits.
+    SCAN_TIMEOUT = 0.25
 
     def __init__(self, serial_device, address, device_scan=False, logger=True, verbose=True):
         self.ser = serial_device
@@ -42,6 +53,9 @@ class HMTLServer():
 
         self.conn = None
         self.listener = None
+
+        # Whether the in-flight request has already been replied to
+        self.replied = False
 
         self.verbose = verbose
 
@@ -63,31 +77,40 @@ class HMTLServer():
             print("Exiting")
             self.terminate = True
 
+    def reply(self, payload):
+        """Send the single reply this request is waiting for.
+
+        Tracked so that the error path in listen() can tell whether the client
+        is still waiting, and does not queue a second reply that would leave
+        every subsequent recv() off by one.
+        """
+        self.replied = True
+        self.conn.send(payload)
+
     def handle_msg(self, item):
         if item.data == SERVER_EXIT:
             self.logger.log("* Received exit signal *")
-            self.conn.send(SERVER_ACK)
+            self.reply(SERVER_ACK)
             self.close()
         elif item.data == SERVER_DATA_REQ:
             self.logger.log("* Recieved data request")
             item = self.get_data_msg()
             if item:
-                self.conn.send(item.data)
+                self.reply(item.data)
             else:
-                self.conn.send(None)
+                self.reply(None)
         else:
             # Forward the message to the device
-            self.serial_cv.acquire()
             self.send_data(item.data)
-            self.serial_cv.release()
 
             # Reply with acknowledgement
-            self.conn.send(SERVER_ACK)
+            self.reply(SERVER_ACK)
 
     def send_data(self, data):
-        self.serial_cv.acquire()
-        self.ser.send_and_confirm(data, False)
-        self.serial_cv.release()
+        # `with` rather than acquire/release so an exception cannot leak the
+        # lock and starve the DeviceScanner thread.
+        with self.serial_cv:
+            self.ser.send_and_confirm(data, False)
 
     # Wait for and handle incoming connections
     def listen(self):
@@ -95,8 +118,10 @@ class HMTLServer():
         self.get_connection()
 
         while not self.terminate:
+            data = None
             try:
                 data = self.conn.recv()
+                self.replied = False
                 item = InputItem.from_data(data)
 
                 self.logger.log("Received: %s" % item)
@@ -108,11 +133,25 @@ class HMTLServer():
                 self.logger.log("Lost connection")
                 self.listener.close()
                 self.get_connection()
-            except Exception as e:
-                # Close the connection on uncaught exception
-                self.logger.log("Exception during listen")
-                self.close()
-                raise e
+            except Exception:
+                # A malformed or unexpected message must not take down the
+                # server -- log it, drop the message, and keep serving.
+                self.logger.log("Exception handling message:\n%s" %
+                                traceback.format_exc())
+                if not self.replied:
+                    # The client is still waiting, so unblock it.  Only when we
+                    # have not already replied: a second reply would desync the
+                    # stream and be read as the next request's response.
+                    #
+                    # The reply must match the shape the client expects for
+                    # this request.  A data request is awaiting serial payload
+                    # or None; handing it the plain-str ack would be treated as
+                    # payload and blow up in hexlify()/decode_data().
+                    recovery = None if data == SERVER_DATA_REQ else SERVER_ACK
+                    try:
+                        self.reply(recovery)
+                    except Exception:
+                        pass
 
     def close(self):
         self.listener.close()
@@ -120,29 +159,33 @@ class HMTLServer():
             self.conn.close()
         self.terminate = True
 
-    def get_data_msg(self, timeout=0.25):
+    def get_data_msg(self, timeout=None):
         """Listen on the serial device for a properly formatted data message"""
 
-        self.serial_cv.acquire()
-        self.logger.log("Starting data request")
-        
-        time_limit = time.time() + timeout
-        item = None
-        while True:
-            # Try to get a message with low timeout
-            item = self.ser.get_message(timeout=0.1)
-            if item and item.is_hmtl:
-                self.logger.log("Received response: %s:\n%s" %
-                                (item, HMTLprotocol.decode_data(item.data)))
-                break
+        if timeout is None:
+            timeout = self.DATA_TIMEOUT
 
-            # Check for timeout
-            if time.time() > time_limit:
-                self.logger.log("Data request time limit exceeded")
-                item = None
-                break
+        # `with` rather than acquire/release: decode_data() below parses
+        # attacker-shaped serial input and can raise, and a leaked lock would
+        # permanently starve the DeviceScanner thread.
+        with self.serial_cv:
+            self.logger.log("Starting data request")
 
-        self.serial_cv.release()
+            time_limit = time.time() + timeout
+            item = None
+            while True:
+                # Try to get a message with low timeout
+                item = self.ser.get_message(timeout=0.1)
+                if item and item.is_hmtl:
+                    self.logger.log("Received response: %s:\n%s" %
+                                    (item, HMTLprotocol.decode_data(item.data)))
+                    break
+
+                # Check for timeout
+                if time.time() > time_limit:
+                    self.logger.log("Data request time limit exceeded")
+                    item = None
+                    break
 
         return item
 
@@ -201,7 +244,11 @@ class DeviceScanner(threading.Thread):
 
                 try:
                     self.server.send_data(msg)
-                    item = self.server.get_data_msg()
+                    # Explicit short timeout: most scanned addresses are empty,
+                    # and the scan should not inherit the RS485-sized
+                    # DATA_TIMEOUT once per dead address.
+                    item = self.server.get_data_msg(
+                        timeout=HMTLServer.SCAN_TIMEOUT)
                     if item:
                         (text, msg) = HMTLprotocol.decode_msg(item.data)
                         if (isinstance(msg, HMTLprotocol.PollHdr)):

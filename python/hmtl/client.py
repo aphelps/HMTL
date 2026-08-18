@@ -53,7 +53,8 @@ class HMTLClient():
     def get_ack(self):
         msg = self.conn.recv()
         if (self.verbose):
-            self.logger.log(" - Received: '%s' '%s'" % (msg, hexlify(msg)))
+            # Server control messages are plain strings, not bytes
+            self.logger.log(" - Received: '%s'" % (msg,))
         if (msg == server.SERVER_ACK):
             return True
         else:

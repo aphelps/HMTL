@@ -308,11 +308,35 @@ def main():
         print("Sent and acked in %.6fs" % (endtime - starttime))
 
         if (options.commandtype == "dumpconfig"):
-            hdrs = [x[-1].config for x in headers]
-            print("Configuration objects:")
-            for hdr in hdrs:
-                print("  * %s" % hdr.short())
-            print("outputs: %s" % (config.config_types(hdrs)))
+            # A response is usable only if it decoded AND its trailing header is
+            # actually config data.  On a shared RS485 bus an unrelated reply
+            # (say a poll response from another module) can land here, and
+            # blindly reading .config off it would raise AttributeError -- the
+            # same crash class this is meant to avoid.
+            hdrs = []
+            dropped = 0
+            for entry in headers:
+                cfg = getattr(entry[-1], "config", None) if entry else None
+                if cfg is None:
+                    dropped += 1
+                else:
+                    hdrs.append(cfg)
+
+            if dropped:
+                # Report rather than silently filter: a partial dump otherwise
+                # looks identical to a complete one.
+                print("WARNING: %d of %d response(s) were missing or not "
+                      "config data; output below is incomplete" %
+                      (dropped, len(headers)))
+
+            if not hdrs:
+                print("No configuration data received (module did not respond "
+                      "in time?)")
+            else:
+                print("Configuration objects:")
+                for hdr in hdrs:
+                    print("  * %s" % hdr.short())
+                print("outputs: %s" % (config.config_types(hdrs)))
 
     if options.killserver:
         # Send an exit message to the server
