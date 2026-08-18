@@ -87,6 +87,14 @@ class PixelUtil {
 public:
     PixelUtil() : _num(0), _leds(nullptr) {}
 
+    /* Real HMTLTypes.cpp's pixel setup path calls init() on a default-constructed
+     * instance; mirror the allocating constructor. */
+    void init(uint16_t n, uint8_t /*data*/, uint8_t /*clock*/, uint8_t /*order*/ = 0) {
+        delete[] _leds;
+        _num = n;
+        _leds = new CRGB[n]();
+    }
+
     PixelUtil(uint16_t n, uint8_t /*data*/, uint8_t /*clock*/, uint8_t /*order*/ = 0)
         : _num(n), _leds(new CRGB[n]())
     {}
