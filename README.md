@@ -51,6 +51,35 @@ There are python libraries provided for communicating with the modules and sever
 * [Scan.py](python/Scan.py): Send out polling commands via a command server to find all connected modules
 * [HMTLWebClient.py](python/HMTLWebClient.py): Present a web page to control modules connected to a command server
 
+### Connecting over USB serial
+
+The tools that open a serial port (`TailArduino`, `HMTLConfig`, `HMTLCommandServer`)
+require an explicit `--baud`; there is no default, because no single value is right
+for more than one kind of device:
+
+| Device | Console baud |
+| --- | --- |
+| AVR HMTL modules | 57600 |
+| ESP32 boards (e.g. the fire controller) | 115200 |
+| Older HMTL boards | 9600 |
+
+```bash
+# ESP32 gateway on USB, serving HMTLClient over the network
+bin/HMTLCommandServer -d /dev/cu.usbserial-XXXX -b 115200
+bin/HMTLClient -A 129 -V -O 0 -C 255
+```
+
+Opening the port does **not** reset the attached device: DTR/RTS are deasserted
+before the port is opened and HUPCL is cleared afterwards, so attaching to (and
+detaching from) a controller that is already running a show leaves it running.
+Pass `reset_on_open=True` to `SerialBuffer` for the old reboot-on-connect
+behaviour.
+
+Because the device is not reset, its `ready` announcement comes from
+`MessageHandler::serial_ready()`'s periodic resend rather than from a boot
+banner, so connecting can take up to ~11 s (`READY_THRESHOLD` +
+`READY_RESEND_PERIOD`) against a device that has recently been talked to.
+
 Testing
 -------
 

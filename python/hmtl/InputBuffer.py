@@ -25,6 +25,10 @@ class InputBuffer(threading.Thread, metaclass=ABCMeta):
     # Default logging color
     LOGGING_COLOR = TimedLogger.CYAN
 
+    # `msg_hdr_t.length` is a single byte, so nothing longer can be described
+    # by a valid header.  A "length" above this came from noise, not a message.
+    MAX_HMTL_MSG_LEN = 255
+
     def __init__(self, bufflen=1000, verbose=True):
         threading.Thread.__init__(self)
 
@@ -32,6 +36,10 @@ class InputBuffer(threading.Thread, metaclass=ABCMeta):
 
         self.last_received = 0
         self.total_received = 0
+
+        # Bytes consumed by a framing attempt that turned out to be noise, to
+        # be re-scanned before reading anything new.  See _rewind().
+        self._pushback = []
 
         # Create the buffer for storing serial data
         self.buff = CircularBuffer(bufflen)
@@ -66,49 +74,113 @@ class InputBuffer(threading.Thread, metaclass=ABCMeta):
         # with the parent, or interrupt its blocking read via the buffer.
         pass
 
+    def _read_unit(self):
+        """Read one unit, taking anything previously rewound first."""
+        if self._pushback:
+            return self._pushback.pop(0)
+
+        char = self.read(1)
+        if char:
+            self.total_received += 1
+        return char
+
+    def _rewind(self, data):
+        """Push `data` back to be re-scanned as if it had never been consumed.
+
+        Sliced one unit at a time rather than iterated, so this works for both
+        the bytes readers (serial, socket) and the str one (stdin) without
+        caring which it is.
+        """
+        self._pushback[:0] = [data[i:i + 1] for i in range(len(data))]
+
+    def _valid_hmtl_header(self, hdr):
+        """Does this look like a real message header, or like line noise?
+
+        The start code alone is one byte out of 256, and a serial line carries
+        plenty of bytes that are not messages -- most sharply, the ESP32 boot
+        ROM prints at ~74880 baud, so on a port opened at 115200 its output
+        arrives as arbitrary binary before the application banner.  Accepting a
+        bogus header there is not harmless: `hdr.length` then tells the reader
+        to swallow up to 255 following bytes, which is easily the whole boot
+        banner *and* the `ready` line the caller is waiting for.
+        """
+        return (hdr.version == HMTLprotocol.MsgHdr.PROTOCOL_VERSION and
+                HMTLprotocol.MsgHdr.length() <= hdr.length <= self.MAX_HMTL_MSG_LEN)
+
     def run(self):
         while True:
-            data = b""
-            is_html = False
-            hdr = None
-            while True:
-                char = self.read(1)
+            self._read_item()
 
-                if (char is None) or (len(char) == 0):
+    def _read_item(self):
+        """Frame one item off the stream and queue it.
+
+        Split out of run() so the framing can be exercised directly against a
+        fixed byte string.  Returns the item, or None if the source ran dry
+        before anything complete arrived.
+        """
+        data = b""
+        is_hmtl = False
+        hdr = None
+        while True:
+            char = self._read_unit()
+
+            if (char is None) or (len(char) == 0):
+                break
+
+            if not is_hmtl and ord(char) == HMTLprotocol.MsgHdr.STARTCODE:
+                if data:
+                    # A start code straight after unterminated text.  Emit
+                    # the text as its own item and re-scan the start code,
+                    # rather than parsing a header out of the text bytes.
+                    self._rewind(char)
                     break
+                # This is the start of an HMTL data message
+                is_hmtl = True
 
-                self.total_received += 1
+            if is_hmtl:
+                data += char
 
-                if ord(char) == HMTLprotocol.MsgHdr.STARTCODE:
-                    # This is the start of an HMTL data message
-                    is_html = True
-                if is_html:
-                    data += char
+                if len(data) == HMTLprotocol.MsgHdr.length():
+                    # Received enough data for a full message header
+                    hdr = HMTLprotocol.MsgHdr.from_data(data)
 
-                    if len(data) == HMTLprotocol.MsgHdr.length():
-                        # Received enough data for a full message header
-                        hdr = HMTLprotocol.MsgHdr.from_data(data)
-
-                        # TODO: Perform basic header validation here
-                    if hdr:
-                        if len(data) >= hdr.length:
-                            # Reached end of message
-                            break
-                else:
-                    # Arduino print output lines are terminated with \r\n
-                    if char == b'\r':
+                    if not self._valid_hmtl_header(hdr):
+                        # Not a message: the start code was noise.  Drop
+                        # just that byte and re-scan the rest, so whatever
+                        # follows inside those bytes is still seen.
+                        if self.verbose:
+                            self.logger.log(
+                                "Discarding false start code, resyncing: %s"
+                                % hexlify(data).decode())
+                        self._rewind(data[1:])
+                        data = b""
+                        is_hmtl = False
+                        hdr = None
                         continue
-                    if char == b'\n':
+
+                if hdr:
+                    if len(data) >= hdr.length:
+                        # Reached end of message
                         break
-                    data += char
+            else:
+                # Arduino print output lines are terminated with \r\n
+                if char == b'\r':
+                    continue
+                if char == b'\n':
+                    break
+                data += char
 
-            if data and len(data):
-                self.last_received = time.time()
-                item = InputItem(data, self.last_received, is_html)
-                self.buff.put(item)
+        if data and len(data):
+            self.last_received = time.time()
+            item = InputItem(data, self.last_received, is_hmtl)
+            self.buff.put(item)
 
-                if self.verbose:
-                    item.print(self.logger)
+            if self.verbose:
+                item.print(self.logger)
+
+            return item
+
+        return None
 
 
 class InputItem:
@@ -148,7 +220,9 @@ class InputItem:
             except AttributeError:
                 return self.data
             except UnicodeDecodeError:
-                return "(raw) '%s'" % (hexlify(self.data))
+                # Binary that is not a message -- boot-ROM noise, a truncated
+                # frame.  Printable, never fatal.
+                return "(raw) '%s'" % (hexlify(self.data).decode())
 
     def print(self, logger, color=None):
         logger.log(str(self), self.timestamp, color)
