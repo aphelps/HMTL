@@ -69,16 +69,38 @@ bin/HMTLCommandServer -d /dev/cu.usbserial-XXXX -b 115200
 bin/HMTLClient -A 129 -V -O 0 -C 255
 ```
 
-Opening the port does **not** reset the attached device: DTR/RTS are deasserted
-before the port is opened and HUPCL is cleared afterwards, so attaching to (and
-detaching from) a controller that is already running a show leaves it running.
-Pass `reset_on_open=True` to `SerialBuffer` for the old reboot-on-connect
-behaviour.
+Opening the port tries not to reset the attached device, so that attaching to a
+controller that is already running a show leaves it running. What that is worth
+depends on the board, and it is worth being precise:
 
-Because the device is not reset, its `ready` announcement comes from
+* **Guaranteed in software.** The OS raises DTR and RTS when the device node is
+  opened, before any of our code runs; all we control is the order they come
+  back down in. We bring RTS down first and DTR second, so the pair never sits
+  at DTR-low/RTS-high — the state an ESP32's auto-reset circuit reads as
+  EN-low. HUPCL is also cleared, so the tty layer does not drop the lines at
+  exit (belt-and-braces: they are already low by then).
+* **Platform-dependent.** Whether the USB-serial adapter itself glitches the
+  modem lines during the open is up to its driver (FTDI, CP2102 and CH340 do
+  not all behave alike). That is only observable on a scope or by watching for
+  a boot banner, and is on the bench checklist — **not yet confirmed on
+  hardware**.
+* **Not possible at all on AVR boards** (e.g. module 72's FTDI). Their reset is
+  edge-triggered through a DTR capacitor and the edge happens inside the
+  `open()` syscall. No software setting suppresses it: connecting to an AVR
+  module reboots it, as it always has.
+
+Pass `reset_on_open=True` to `SerialBuffer` for the old, deliberate
+reboot-on-connect behaviour.
+
+Where the device is not reset, its `ready` announcement comes from
 `MessageHandler::serial_ready()`'s periodic resend rather than from a boot
 banner, so connecting can take up to ~11 s (`READY_THRESHOLD` +
 `READY_RESEND_PERIOD`) against a device that has recently been talked to.
+
+**Changed in this release:** `HMTLConfig -b N` used to mean both "connect at N"
+and "write N into the module's stored config". It now only selects the connect
+baud; use `--set-baud N` to write a baud into the config. Previously a plain
+`HMTLConfig -p` (print) would silently write the default 9600 into the module.
 
 Testing
 -------

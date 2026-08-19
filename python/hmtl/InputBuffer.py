@@ -125,6 +125,23 @@ class InputBuffer(threading.Thread, metaclass=ABCMeta):
             char = self._read_unit()
 
             if (char is None) or (len(char) == 0):
+                # The source ran dry -- a read timeout (0.1 s on serial) or the
+                # end of the stream.  If a *partial* HMTL frame is in hand we
+                # cannot emit it: InputItem() would call MsgHdr.from_data() on
+                # fewer than 8 bytes and raise struct.error straight out of the
+                # reader thread, which then exits and takes every subsequent
+                # line with it -- including the `ready` the caller is waiting
+                # for.  This is not hypothetical: ESP32 boot-ROM noise ends a
+                # burst on a 0xFC often enough, and the gap before the app
+                # banner is far longer than the read timeout.
+                #
+                # So treat those bytes as what they almost certainly are --
+                # noise that happened to contain a start code -- and re-scan
+                # them minus the false start code.  Dropping exactly one byte
+                # per attempt guarantees forward progress.
+                if is_hmtl and len(data) < HMTLprotocol.MsgHdr.length():
+                    self._rewind(data[1:])
+                    return None
                 break
 
             if not is_hmtl and ord(char) == HMTLprotocol.MsgHdr.STARTCODE:

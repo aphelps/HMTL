@@ -7,6 +7,8 @@
 # data read can either be line terminated ('\n') or as HMTL messages
 ################################################################################
 
+import errno
+
 import serial
 
 from hmtl.TimedLogger import TimedLogger
@@ -19,7 +21,17 @@ except ImportError:  # pragma: no cover - non-POSIX
 
 
 def _disable_hupcl(connection):
-    """Clear HUPCL so closing the port does not drop DTR (and reset the device).
+    """Clear HUPCL so the tty layer does not drop DTR on the last close.
+
+    DEFENSIVE, not load-bearing on the normal path.  HUPCL makes the tty layer
+    *lower* DTR/RTS when the last fd closes -- but `_open_port()` has already
+    lowered both for the whole session, so on that path the drop at exit is
+    electrically a no-op: no falling edge for an AVR's DTR cap, no EN-low state
+    for an ESP32.  It matters only if something re-asserts the lines mid-session
+    (a `conn.dtr = True`, another process opening the same port), which is
+    exactly the case worth being cheap insurance against.  The one path where it
+    would really be needed -- `reset_on_open=True` -- deliberately does not call
+    it, because there the reset is the point.
 
     Best effort: silently does nothing where the platform or the file
     descriptor does not support it (no termios, not a tty, a pty in a test).
@@ -57,8 +69,10 @@ class SerialBuffer(InputBuffer):
         turns a wrong-baud connection into a confusing symptom -- garbage bytes
         followed by a ready timeout -- so every caller must say what it means.
 
-        `reset_on_open` defaults to False so that attaching to a device does not
-        reboot it; see `_open_port()`.
+        `reset_on_open` defaults to False so that attaching to a device does
+        not reboot it.  That holds for an ESP32; an AVR board's DTR-capacitor
+        reset fires inside `os.open()` and cannot be suppressed from software.
+        See `_open_port()`.
         """
         InputBuffer.__init__(self, bufflen, verbose)
 
@@ -67,7 +81,8 @@ class SerialBuffer(InputBuffer):
         self.baud = baud
         self.connection = self._open_port(device, baud, timeout, reset_on_open)
         self.logger.log("SerialBuffer: connected to %s at %s baud%s" %
-                        (device, baud, "" if reset_on_open else " (no reset on open)"),
+                        (device, baud,
+                         "" if reset_on_open else " (no reset requested on open)"),
                         color=TimedLogger.CYAN)
 
     @staticmethod
@@ -80,21 +95,40 @@ class SerialBuffer(InputBuffer):
         is the wrong default here: the command server is often attached to a
         controller that is already running a show.
 
-        Two things have to be suppressed, and they are separate:
+        The kernel raises DTR *and* RTS on `os.open()`, before any Python of
+        ours runs, so what we control is only the order in which they come back
+        down.  That order is the whole game on an ESP32: its auto-reset circuit
+        holds EN low exactly when DTR is low while RTS is still high.
 
-        1. **Open.** pyserial records the DTR/RTS state on the object and applies
-           it inside `open()`, so the state must be set *before* opening -- with a
-           port passed to the constructor, `serial.Serial(...)` opens immediately
-           and the lines are asserted first and lowered afterwards.
-        2. **Close.** pyserial never touches HUPCL, so the tty layer drops DTR
-           when the last fd closes -- i.e. the reset happens when our process
-           *exits*, not when it starts.  Clearing HUPCL is what stops that.
+        pyserial 3.5's `open()` writes DTR before RTS (`_update_dtr_state()`
+        then `_update_rts_state()` in serialposix), so the obvious
+        `dtr = False; rts = False` before `open()` walks straight through
+        DTR-low/RTS-high -- i.e. through the reset condition it was written to
+        avoid.  Instead:
 
-        Neither step is a guarantee at the electrical level: on POSIX the driver
-        may still assert the modem lines for the instant between `os.open()` and
-        pyserial applying our state.  This is the best the API allows, and the
-        residual behaviour is per-platform/per-driver -- hence the hardware
-        check in the plan's `## Testing Required`.
+        1. `dsrdtr = True` before `open()` makes pyserial skip its in-open DTR
+           write, leaving DTR asserted as the kernel left it.  (On POSIX
+           `dsrdtr` has no other effect: `_reconfigure_port()` never reads it.)
+           `open()` then lowers RTS only -- DTR high, RTS low, which the circuit
+           reads as IO0-low, harmless while EN stays high.
+        2. `dtr = False` immediately after `open()` brings DTR down with RTS
+           already low, so both end deasserted without EN ever going low.
+        3. HUPCL is cleared afterwards -- see `_disable_hupcl()`.  On this path
+           it is insurance, not the thing preventing a reset: the lines are
+           already low, so the drop at close has no edge to give.
+
+        What this does and does not buy, honestly:
+
+        - **ESP32**: the software half is now complete -- no state we can reach
+          from Python is an EN-low state.  Whether the adapter itself glitches
+          the lines during `os.open()` is per-driver (FTDI vs CP2102 vs CH340)
+          and is only observable on a scope; hence the bench item in the plan's
+          `## Testing Required`.
+        - **AVR boards (e.g. module 72's FTDI)**: NOT avoidable.  Their reset is
+          edge-triggered through a DTR capacitor and the rising edge happens
+          inside `os.open()`, before this function regains control.  No pyserial
+          ordering, and no termios setting, prevents that.  Connecting to an AVR
+          module still reboots it.
         """
         if reset_on_open:
             return serial.Serial(device, baud, timeout=timeout)
@@ -103,10 +137,27 @@ class SerialBuffer(InputBuffer):
         conn.port = device
         conn.baudrate = baud
         conn.timeout = timeout
-        # Set before open(): see (1) above.
-        conn.dtr = False
-        conn.rts = False
-        conn.open()
+
+        if termios is not None:
+            # POSIX ordering, per (1) and (2) above.  Not used off POSIX, where
+            # dsrdtr means real DTR/DSR flow control and would stall the link.
+            conn.dsrdtr = True
+            conn.rts = False
+            conn.open()
+            try:
+                conn.dtr = False
+            except OSError as e:
+                # Some ports have no modem lines at all (a pty, a USB CDC-ACM
+                # gadget).  pyserial swallows exactly these two inside open()
+                # for the same reason; there is nothing to lower, so nothing to
+                # do.  Anything else is a real failure and should propagate.
+                if e.errno not in (errno.EINVAL, errno.ENOTTY):
+                    raise
+        else:  # pragma: no cover - non-POSIX
+            conn.dtr = False
+            conn.rts = False
+            conn.open()
+
         _disable_hupcl(conn)
         return conn
 

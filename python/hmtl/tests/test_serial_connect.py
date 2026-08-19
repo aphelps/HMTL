@@ -246,8 +246,114 @@ class _ReplayBuffer(InputBuffer):
         return produced
 
 
+class _ChunkedBuffer(InputBuffer):
+    """An InputBuffer over a list of chunks, one `read()` per chunk.
+
+    Unlike _ReplayBuffer this can yield b"" *in the middle* of the stream, which
+    is what a 0.1 s serial read timeout looks like: the source is not finished,
+    it has just gone quiet.  That gap is the interesting case -- it is where a
+    partial frame gets stranded.
+    """
+
+    def __init__(self, chunks):
+        InputBuffer.__init__(self, bufflen=100, verbose=False)
+        self._chunks = list(chunks)
+        self._pending = b""
+
+    def get_reader(self):
+        return None
+
+    def read(self, max_read):
+        if not self._pending:
+            if not self._chunks:
+                return b""
+            self._pending = self._chunks.pop(0)
+            if not self._pending:
+                # An empty chunk *is* the read timeout being modelled.
+                return b""
+        chunk, self._pending = (self._pending[:max_read],
+                                self._pending[max_read:])
+        return chunk
+
+    def write(self, data):
+        raise NotImplementedError
+
+    def drained(self):
+        return not self._chunks and not self._pending and not self._pushback
+
+    def items(self):
+        produced = []
+        while not self.drained():
+            item = self._read_item()
+            if item is not None:
+                produced.append(item)
+        return produced
+
+
 def _hmtl_poll_frame(address=129):
     return HMTLprotocol.get_poll_msg(address)
+
+
+def test_short_start_code_burst_then_read_timeout_does_not_kill_the_reader():
+    """A truncated frame at a read boundary must not take the thread down.
+
+    The exact sequence from the bench: boot-ROM noise whose last burst happens
+    to end `...\\xfc\\x11`, then the >100 ms gap before the application banner,
+    then the banner and `ready`.  Fewer than 8 bytes are in hand when the read
+    times out, so the old code fell through to InputItem(is_hmtl=True) ->
+    MsgHdr.from_data() -> `struct.error: unpack_from requires a buffer of at
+    least 8 bytes`, straight out of InputBuffer.run().  The reader thread died
+    and wait_for_ready() then sat there for 14 s reporting that nothing had been
+    received -- on a bus that carries igniter-time noise, routinely.
+
+    The reader must instead treat the stranded bytes as noise, resynchronise,
+    and still deliver the `ready` behind them.
+    """
+    buffer_obj = _ChunkedBuffer([b"\xfc\x11", b"",
+                                 b"HMTL Fire Control\r\n" + READY + b"\r\n"])
+
+    payloads = [item.data for item in buffer_obj.items()]
+
+    assert READY in payloads, (
+        "reader did not resynchronise past the truncated frame")
+
+
+def test_truncated_frame_at_a_read_boundary_is_not_parsed_as_a_header():
+    """The stranded bytes are re-scanned, not emitted as a bogus HMTL item."""
+    buffer_obj = _ChunkedBuffer([b"\xfc\x11\x22", b"", b"text\r\n"])
+
+    items = buffer_obj.items()
+
+    assert not any(item.is_hmtl for item in items), (
+        "a sub-header-length fragment was emitted as an HMTL message")
+    # The rewound noise has no line terminator after it, so it prefixes the
+    # following text rather than becoming an item of its own -- ugly in the log,
+    # but nothing is lost and nothing raises.
+    assert b"text" in b"".join(item.data for item in items)
+
+
+def test_lone_start_code_before_a_gap_is_dropped_without_looping():
+    """A single 0xFC then silence: one byte consumed, no infinite rescan."""
+    buffer_obj = _ChunkedBuffer([b"\xfc", b"", READY + b"\r\n"])
+
+    payloads = [item.data for item in buffer_obj.items()]
+
+    assert payloads == [READY]
+
+
+def test_a_real_frame_split_across_a_read_still_arrives():
+    """Resync must not eat a genuine message that merely arrives in pieces.
+
+    A full header is in hand before the gap here, so the frame is completed
+    rather than discarded.
+    """
+    frame = _hmtl_poll_frame()
+    buffer_obj = _ChunkedBuffer([frame[:8], b"", frame[8:]])
+
+    items = buffer_obj.items()
+
+    assert [item.data for item in items] == [frame]
+    assert items[0].is_hmtl
 
 
 def test_boot_noise_then_banner_then_ready_still_yields_ready():
@@ -331,7 +437,7 @@ class _FakeSerial:
         self.is_open = False
 
     def __setattr__(self, name, value):
-        if name in ("port", "baudrate", "timeout", "dtr", "rts"):
+        if name in ("port", "baudrate", "timeout", "dtr", "rts", "dsrdtr"):
             self.events.append((name, value))
         object.__setattr__(self, name, value)
 
@@ -343,12 +449,14 @@ class _FakeSerial:
         raise OSError("not a real fd")
 
 
-def test_open_deasserts_dtr_and_rts_before_opening(monkeypatch):
-    """Order matters: pyserial applies the recorded state inside open().
+def test_open_skips_pyserials_dtr_write_and_lowers_dtr_afterwards(monkeypatch):
+    """The shape of the fix, at the pyserial API level.
 
-    Constructing `serial.Serial(port, ...)` opens immediately, so the lines go
-    active first and are only lowered afterwards -- a pulse, which is precisely
-    what the auto-reset circuit is looking for.
+    `dsrdtr` and `rts` must be set BEFORE open() (pyserial applies both inside
+    it), and `dtr` must be written AFTER, so DTR comes down only once RTS is
+    already down.  See _open_port()'s docstring for why that order is the whole
+    point, and test_open_never_leaves_dtr_low_while_rts_is_high for the ioctl
+    sequence that actually reaches the port.
     """
     fake = _FakeSerial()
     monkeypatch.setattr("hmtl.SerialBuffer.serial.Serial", lambda: fake)
@@ -356,10 +464,15 @@ def test_open_deasserts_dtr_and_rts_before_opening(monkeypatch):
     SerialBuffer._open_port("/dev/fake", 115200, 0.1, reset_on_open=False)
 
     names = [name for name, _ in fake.events]
-    assert names.index("dtr") < names.index("open")
+    assert names.index("dsrdtr") < names.index("open"), (
+        "dsrdtr must be set before open() or pyserial writes DTR itself")
     assert names.index("rts") < names.index("open")
-    assert dict(fake.events)["dtr"] is False
+    assert names.index("dtr") > names.index("open"), (
+        "writing dtr before open() puts the DTR change back inside open(), "
+        "ahead of the RTS change -- the reset state this exists to avoid")
+    assert dict(fake.events)["dsrdtr"] is True
     assert dict(fake.events)["rts"] is False
+    assert dict(fake.events)["dtr"] is False
 
 
 def test_reset_on_open_is_opt_in(monkeypatch):
@@ -426,9 +539,15 @@ def test_serial_buffer_opens_a_real_port_without_reset_and_clears_hupcl():
         try:
             assert buff.device == port
             assert buff.baud == 115200
-            # pyserial reports the state it applied during open().
-            assert buff.connection.dtr is False
-            assert buff.connection.rts is False
+            # NOTE: deliberately NOT asserting buff.connection.dtr/.rts here.
+            # Those are getters for pyserial's cached _dtr_state/_rts_state, not
+            # a TIOCMGET of the line, so they would pass whatever the wire did.
+            # A pty has no modem lines at all (TIOCMGET returns ENOTTY on
+            # macOS), so the line state genuinely cannot be observed from here.
+            # What IS observable, and is checked, is the sequence of ioctls the
+            # open path issues -- see
+            # test_open_never_leaves_dtr_low_while_rts_is_high.  The wire itself
+            # is a `## Testing Required` bench item with a scope on DTR/RTS/EN.
             attrs = termios.tcgetattr(buff.connection.fileno())
             assert not (attrs[2] & termios.HUPCL), (
                 "closing the port would drop DTR and reset the device")
@@ -440,6 +559,80 @@ def test_serial_buffer_opens_a_real_port_without_reset_and_clears_hupcl():
             os.close(slave)
         except OSError:
             pass
+
+
+@pytest.mark.skipif(not hasattr(termios, "HUPCL"), reason="POSIX only")
+def test_open_never_leaves_dtr_low_while_rts_is_high(monkeypatch):
+    """The ESP32 auto-reset state must never be visited during open().
+
+    This is the closest a host-side test can get to the wire.  A pty has no
+    modem lines, so instead of reading them back we record the modem-line ioctls
+    the open path actually issues (TIOCMBIS/TIOCMBIC with the DTR/RTS bits) and
+    replay them against the ESP32 auto-reset circuit's truth table:
+
+        DTR RTS  ->  EN  IO0
+         1   1        1   1
+         0   0        1   1
+         1   0        1   0
+         0   1        0   1   <-- reset asserted
+
+    The OS raises both lines on os.open(), so the walk starts at (1, 1).  The
+    naive `dtr = False; rts = False` before open() makes pyserial write DTR
+    first (serialposix.open() calls _update_dtr_state() then
+    _update_rts_state()), stepping through (0, 1) -- EN low.  That is the bug
+    this ordering exists to avoid, and reverting the fix turns this test red.
+    """
+    import struct
+    import fcntl as real_fcntl
+    import serial.serialposix as serialposix
+
+    line_ops = []
+    bit_names = {serialposix.TIOCM_DTR: "DTR", serialposix.TIOCM_RTS: "RTS"}
+
+    class _RecordingFcntl:
+        """Delegates to fcntl, recording (and faking) the modem-line ioctls."""
+
+        def ioctl(self, fd, request, arg=0, mutate_flag=True):
+            if request in (serialposix.TIOCMBIS, serialposix.TIOCMBIC):
+                bits = struct.unpack("I", arg)[0]
+                line_ops.append((bit_names[bits],
+                                 request == serialposix.TIOCMBIS))
+                # A pty would raise ENOTTY; report success so the real code
+                # path runs to completion and we see every write it makes.
+                return arg
+            return real_fcntl.ioctl(fd, request, arg, mutate_flag)
+
+        def __getattr__(self, name):
+            return getattr(real_fcntl, name)
+
+    monkeypatch.setattr(serialposix, "fcntl", _RecordingFcntl())
+
+    master, slave = pty.openpty()
+    port = os.ttyname(slave)
+    try:
+        conn = SerialBuffer._open_port(port, 115200, 0.1, reset_on_open=False)
+        conn.close()
+    finally:
+        os.close(master)
+        try:
+            os.close(slave)
+        except OSError:
+            pass
+
+    assert line_ops, "no modem-line ioctls were issued at all"
+
+    dtr, rts = True, True  # as the kernel left them at os.open()
+    for name, asserted in line_ops:
+        if name == "DTR":
+            dtr = asserted
+        else:
+            rts = asserted
+        assert not (rts and not dtr), (
+            "open() passed through DTR-low/RTS-high (EN low on an ESP32) "
+            "after %r; full sequence was %r" % ((name, asserted), line_ops))
+
+    assert (dtr, rts) == (False, False), (
+        "both lines must end deasserted, ended %r" % ((dtr, rts),))
 
 
 def test_disable_hupcl_is_harmless_without_a_real_fd():

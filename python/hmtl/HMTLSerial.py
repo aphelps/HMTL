@@ -48,8 +48,18 @@ class HMTLSerial():
     # or the client gives up before the first possible resend and the resend
     # path can never rescue a missed `ready`.  It used to be a flat 10 s -- the
     # same value as READY_THRESHOLD -- so the firmware's first retry landed at
-    # or after the moment the client bailed out.  The extra margin covers serial
-    # latency and a slow boot banner.
+    # or after the moment the client bailed out.
+    #
+    # The +3 s margin is NOT slack, and this is the constant someone will be
+    # tempted to trim: 11 s is a lower bound that is reached only in the
+    # worst case, and that case is normal.  On a board that was freshly booted
+    # or has just been talked to, `now - last_serial_ms` starts near zero, so
+    # serial_ready() cannot fire until a full READY_THRESHOLD has elapsed and
+    # the first resend lands at exactly THRESHOLD + RESEND_PERIOD.  On top of
+    # that, wait_for_ready() polls in 1 s blocks, so up to another second can
+    # pass before we look; add serial latency and 12 s is a coin flip.  (A board
+    # with long uptime and no recent traffic is the easy case -- its resend
+    # fires within ~1 s of connecting.)
     MAX_READY_WAIT = FIRMWARE_READY_THRESHOLD + FIRMWARE_READY_RESEND_PERIOD + 3.0
 
     # How many recently seen lines to quote back in a ready-timeout error.
