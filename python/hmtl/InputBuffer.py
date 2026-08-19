@@ -29,6 +29,17 @@ class InputBuffer(threading.Thread, metaclass=ABCMeta):
     # by a valid header.  A "length" above this came from noise, not a message.
     MAX_HMTL_MSG_LEN = 255
 
+    # How many consecutive empty reads to ride out while a *partial* HMTL frame
+    # is in hand before concluding that it was never a frame at all.  On serial
+    # each one is a full read timeout (0.1 s by default), so this is ~0.5 s of
+    # patience.  It has to be greater than zero: a 12-byte message straddling a
+    # read boundary is ordinary -- the adapter's latency timer, the far end
+    # filling its TX buffer, a busy host -- and abandoning the frame there loses
+    # an actuator command silently.  It also has to be bounded: noise that
+    # happens to look like a valid header must not wedge the reader waiting for
+    # a body that is never coming.
+    MAX_PARTIAL_FRAME_READS = 5
+
     def __init__(self, bufflen=1000, verbose=True):
         threading.Thread.__init__(self)
 
@@ -107,6 +118,15 @@ class InputBuffer(threading.Thread, metaclass=ABCMeta):
         return (hdr.version == HMTLprotocol.MsgHdr.PROTOCOL_VERSION and
                 HMTLprotocol.MsgHdr.length() <= hdr.length <= self.MAX_HMTL_MSG_LEN)
 
+    @staticmethod
+    def _frame_complete(data, hdr):
+        """Is `data` a whole HMTL message, or still waiting on more bytes?
+
+        `hdr` is None until 8 bytes have been collected, so "no header yet"
+        is by definition incomplete.
+        """
+        return hdr is not None and len(data) >= hdr.length
+
     def run(self):
         while True:
             self._read_item()
@@ -121,28 +141,51 @@ class InputBuffer(threading.Thread, metaclass=ABCMeta):
         data = b""
         is_hmtl = False
         hdr = None
+        empty_reads = 0
         while True:
             char = self._read_unit()
 
             if (char is None) or (len(char) == 0):
                 # The source ran dry -- a read timeout (0.1 s on serial) or the
-                # end of the stream.  If a *partial* HMTL frame is in hand we
-                # cannot emit it: InputItem() would call MsgHdr.from_data() on
-                # fewer than 8 bytes and raise struct.error straight out of the
-                # reader thread, which then exits and takes every subsequent
-                # line with it -- including the `ready` the caller is waiting
-                # for.  This is not hypothetical: ESP32 boot-ROM noise ends a
-                # burst on a 0xFC often enough, and the gap before the app
-                # banner is far longer than the read timeout.
-                #
-                # So treat those bytes as what they almost certainly are --
-                # noise that happened to contain a start code -- and re-scan
-                # them minus the false start code.  Dropping exactly one byte
-                # per attempt guarantees forward progress.
-                if is_hmtl and len(data) < HMTLprotocol.MsgHdr.length():
+                # end of the stream.
+                if is_hmtl and not self._frame_complete(data, hdr):
+                    # A *partial* HMTL frame is in hand.  Two things must both
+                    # be true here, and getting either wrong is a silent bug:
+                    #
+                    # 1. A real message that merely straddles a read boundary
+                    #    must survive.  A gap inside a 12-byte frame is
+                    #    ordinary, and the far side of it is an actuator
+                    #    command -- emitting the header on its own and letting
+                    #    the body fall out as text loses it without a word.  So
+                    #    keep reading across a bounded number of empty reads.
+                    #
+                    # 2. Bytes that were never a frame must not be parsed as
+                    #    one.  Fewer than 8 bytes with `is_hmtl` set would send
+                    #    InputItem() into MsgHdr.from_data() and raise
+                    #    struct.error straight out of the reader thread, which
+                    #    then exits and takes every subsequent line with it --
+                    #    including the `ready` the caller is waiting for.  ESP32
+                    #    boot-ROM noise ends a burst on a 0xFC often enough, and
+                    #    the gap before the app banner is far longer than a read
+                    #    timeout.
+                    #
+                    # So: wait, then give up.  Giving up re-scans the bytes
+                    # minus the false start code; dropping exactly one byte per
+                    # attempt guarantees forward progress rather than a rescan
+                    # loop.
+                    empty_reads += 1
+                    if empty_reads <= self.MAX_PARTIAL_FRAME_READS:
+                        continue
+
+                    if self.verbose:
+                        self.logger.log(
+                            "Abandoning incomplete message, resyncing: %s"
+                            % hexlify(data).decode())
                     self._rewind(data[1:])
                     return None
                 break
+
+            empty_reads = 0
 
             if not is_hmtl and ord(char) == HMTLprotocol.MsgHdr.STARTCODE:
                 if data:

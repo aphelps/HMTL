@@ -341,19 +341,58 @@ def test_lone_start_code_before_a_gap_is_dropped_without_looping():
     assert payloads == [READY]
 
 
-def test_a_real_frame_split_across_a_read_still_arrives():
+@pytest.mark.parametrize("split", [1, 3, 7, 8, 9, 11])
+def test_a_real_frame_split_across_a_read_still_arrives(split):
     """Resync must not eat a genuine message that merely arrives in pieces.
 
-    A full header is in hand before the gap here, so the frame is completed
-    rather than discarded.
+    This is the over-correction guard for the truncated-frame fix above: having
+    taught the reader to throw away a stranded partial frame, it must not throw
+    away a real one that is merely straddling a read timeout.  A 0.1 s gap in
+    the middle of a 12-byte message is ordinary -- the USB adapter's latency
+    timer, the far end filling its TX buffer, a busy host -- and the message on
+    the other side of it is an actuator command.
+
+    The frame is deliberately one WITH A BODY (`get_value_msg`, 12 bytes).  An
+    earlier version of this test used `_hmtl_poll_frame()`, which is
+    MSG_POLL_LEN == MSG_BASE_LEN == 8 bytes, so `frame[8:]` was `b""` and the
+    "split" split off nothing: the frame completed at byte 8 before the gap was
+    ever read, and the test passed on any behaviour whatsoever.  Splitting at
+    every interesting offset -- inside the header, exactly at the header
+    boundary, inside the body -- makes it impossible to be vacuous again.
     """
-    frame = _hmtl_poll_frame()
-    buffer_obj = _ChunkedBuffer([frame[:8], b"", frame[8:]])
+    frame = HMTLprotocol.get_value_msg(129, 0, 255)
+    assert len(frame) > HMTLprotocol.MsgHdr.length(), (
+        "fixture must have a body, or nothing is being split")
+
+    buffer_obj = _ChunkedBuffer([frame[:split], b"", frame[split:]])
 
     items = buffer_obj.items()
 
-    assert [item.data for item in items] == [frame]
+    assert [item.data for item in items] == [frame], (
+        "frame split at offset %d was not reassembled" % split)
     assert items[0].is_hmtl
+
+
+def test_a_body_that_never_arrives_is_abandoned_rather_than_awaited_forever():
+    """The other edge of the same fix: patience has to be bounded.
+
+    Noise that happens to pass the header sanity check announces a body that
+    will never come.  Waiting for it forever would wedge the reader just as
+    surely as the struct.error crash did -- and no bogus header-only HMTL item
+    may be emitted either.  After MAX_PARTIAL_FRAME_READS empty reads the bytes
+    are abandoned (minus the false start code) and the stream resynchronises.
+    """
+    frame = HMTLprotocol.get_value_msg(129, 0, 255)
+    gap = [b""] * (InputBuffer.MAX_PARTIAL_FRAME_READS + 2)
+    buffer_obj = _ChunkedBuffer([frame[:HMTLprotocol.MsgHdr.length()]] +
+                                gap + [READY + b"\r\n"])
+
+    items = buffer_obj.items()
+
+    assert not any(item.is_hmtl for item in items), (
+        "a message with no body was emitted as if it were complete")
+    assert READY in [item.data for item in items], (
+        "reader did not resynchronise past the abandoned frame")
 
 
 def test_boot_noise_then_banner_then_ready_still_yields_ready():

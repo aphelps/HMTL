@@ -79,11 +79,16 @@ depends on the board, and it is worth being precise:
   at DTR-low/RTS-high — the state an ESP32's auto-reset circuit reads as
   EN-low. HUPCL is also cleared, so the tty layer does not drop the lines at
   exit (belt-and-braces: they are already low by then).
-* **Platform-dependent.** Whether the USB-serial adapter itself glitches the
-  modem lines during the open is up to its driver (FTDI, CP2102 and CH340 do
-  not all behave alike). That is only observable on a scope or by watching for
-  a boot banner, and is on the bench checklist — **not yet confirmed on
-  hardware**.
+* **Platform-dependent: the order the driver *raises* DTR and RTS inside
+  `os.open()`.** Every session here ends with both lines low (and HUPCL
+  cleared), so the next open starts from DTR-low/RTS-low and the driver raises
+  both. If it raises RTS first, the pair passes through DTR-low/RTS-high — the
+  EN-low state again — before our code gets a say. Whether that happens, and
+  for how long, is up to the adapter's driver (FTDI, CP2102 and CH340 do not
+  all behave alike; the in-tree Linux `dtr_rts` callbacks appear to set both
+  bits in one control transfer, which leaves the macOS drivers as the open
+  question). That edge is only observable on a scope or logic analyser, and is
+  on the bench checklist — **not yet confirmed on hardware**.
 * **Not possible at all on AVR boards** (e.g. module 72's FTDI). Their reset is
   edge-triggered through a DTR capacitor and the edge happens inside the
   `open()` syscall. No software setting suppresses it: connecting to an AVR
