@@ -695,9 +695,18 @@ _BIN = os.path.join(
 _NOT_A_DEVICE = "/nonexistent/hmtl-test-tty"
 
 
-@pytest.mark.parametrize("tool", ["HMTLCommandServer", "HMTLConfig", "TailArduino"])
+@pytest.mark.parametrize("tool", ["HMTLConfig", "TailArduino"])
 def test_serial_tools_refuse_to_run_without_a_baud(tool):
-    """Every tool that opens a port must be told which baud to open it at."""
+    """These tools must be told which baud to open a port at.
+
+    HMTLCommandServer is deliberately NOT in this list: it defaults to
+    115200, which is what it did before this branch and what Adam asked
+    to keep (PR #14).  HMTLConfig and TailArduino previously defaulted to
+    9600 -- a value that matches NO device in this fleet (AVR modules are
+    57600, the ESP32 console is 115200), so restoring that default would
+    reinstate a silent wrong-baud connection rather than a useful one.
+    They stay required pending Adam's call.
+    """
     import subprocess
 
     args = [sys.executable, os.path.join(_BIN, tool), "-d", _NOT_A_DEVICE]
@@ -710,3 +719,21 @@ def test_serial_tools_refuse_to_run_without_a_baud(tool):
 
     assert result.returncode != 0
     assert "Must specify --baud" in result.stdout + result.stderr
+
+
+def test_command_server_defaults_to_115200():
+    """HMTLCommandServer runs without --baud, at the ESP32 console rate.
+
+    Guards the restoration of the pre-branch default (PR #14).  Asserts the
+    tool does not exit demanding a baud -- the failure it must NOT produce.
+    """
+    import subprocess
+
+    result = subprocess.run(
+        [sys.executable, os.path.join(_BIN, "HMTLCommandServer"), "-d", _NOT_A_DEVICE],
+        capture_output=True, text=True,
+        env=dict(os.environ, PYTHONPATH=os.path.dirname(_BIN)))
+
+    combined = result.stdout + result.stderr
+    assert "Must specify --baud" not in combined, \
+        "HMTLCommandServer must not demand --baud; it defaults to 115200"
