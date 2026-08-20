@@ -27,10 +27,8 @@ import pytest
 import hmtl.HMTLprotocol as HMTLprotocol
 
 # Repo-relative, and PYTHONPATH is set explicitly when invoking the CLI below.
-# Not defensive tidiness: a hand-run of `bin/HMTLClient` during this work
-# imported an INSTALLED hmtl package instead of the checkout and reported
-# "no attribute 'ProgramColor'" — a CLI check proves nothing until you know
-# which copy of the library it loaded.
+# An installed hmtl package shadowing the checkout makes a CLI check
+# meaningless, so the invocation below pins which copy is loaded.
 _PYTHON_DIR = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__))))
 _CLI = os.path.join(_PYTHON_DIR, "bin", "HMTLClient")

@@ -15,25 +15,16 @@
 # Two axes, not one. Each toolchain is compiled BOTH with and without
 # -DBIG_PIXELS.
 #
-# The axis was added because hmtl_program_color_t once embedded pixel_range_t
-# and so had a wire layout that followed the flag; only the -DBIG_PIXELS build
-# could catch it being unpacked. That struct now carries a fixed-width
-# wire_pixel_range_t and is 7 bytes with range at 3 under both settings, so that
-# justification is spent — and an axis whose two halves compile identical
-# layouts is a guard that cannot fail, which is the shape this subsystem keeps
-# producing.
+# No wire struct's layout follows the flag, so what keeps this axis able to fail
+# is the pair of pixel_range_t asserts in HMTLPrograms.h: 2 bytes by default,
+# 4 under -DBIG_PIXELS, each invisible to the other variant. pixel_range_t is
+# not on the wire, but it is what program_color() narrows INTO before calling
+# setRangeRGB, so its width decides whether a uint16_t range survives the
+# conversion.
 #
-# What keeps the axis honest now is the pair of pixel_range_t asserts in
-# HMTLPrograms.h: 2 bytes by default, 4 under -DBIG_PIXELS, one of which is
-# invisible to the other variant. That type is no longer on the wire, but it is
-# still what program_color() narrows INTO before calling setRangeRGB, so its
-# width is what decides whether a uint16_t range survives the conversion.
-#
-# Verified both ways rather than argued. Reverting the range to pixel_range_t
-# in a scratch copy now goes red under DEFAULT flags on host, avr-g++ and
-# xtensa — and stays green under -DBIG_PIXELS, where the old layout happened to
-# coincide with the new one. That is the exact inverse of the situation this
-# comment used to describe.
+# The axis is live, not decorative: reverting the wire range to pixel_range_t
+# goes red under DEFAULT flags on host, avr-g++ and xtensa, while staying green
+# under -DBIG_PIXELS where the two layouts coincide.
 #
 # A missing avr-g++ or xtensa-esp32-elf-g++ is reported and skipped by default,
 # because this has to be runnable on a machine that has neither. It is never

@@ -261,10 +261,9 @@ def main():
             print("--color takes r,g,b or r,g,b,start,length; got %d values"
                   % len(parts))
             sys.exit(1)
-        # Parsing and validation are separate steps with separate messages. One
-        # try around both meant a typo'd `--color 255,0,x` printed a bare
-        # "invalid literal for int()" under a comment claiming the module would
-        # drop the message — when nothing had been built to drop.
+        # Parsing and validation are separate steps with separate messages, so
+        # a typo'd `--color 255,0,x` reports the parse failure rather than a
+        # validation one.
         try:
             nums = [int(p) for p in parts]
         except ValueError:
@@ -274,15 +273,13 @@ def main():
         (r, g, b) = nums[:3]
         (start, length) = nums[3:5] if len(nums) == 5 else (0, 0)
 
-        # Construct BEFORE announcing. Printing first meant a refused message
-        # still reported "Sending ... (whole strip)", which is both untrue and
-        # the exact description the validity rule exists to deny.
+        # Construct before announcing, so a refused message is never reported
+        # as sent.
         try:
             program = HMTLprotocol.ProgramColor([r, g, b], start, length)
         except ValueError as e:
-            # ProgramColor range-checks every field, so this is the ONLY failure
-            # mode left here — a struct.error escaping to a traceback on the very
-            # path two warnings tell operators to use would be a poor migration.
+            # ProgramColor range-checks every field, so this is the only
+            # failure mode left here.
             print("%s" % e)
             sys.exit(1)
         print("Sending COLOR message. Address=%d Output=%d Value=%s start=%d length=%d%s" %
@@ -314,18 +311,15 @@ def main():
         if not program_number:
             print("Unknown program value %s" % options.program)
         else:
-            # Gated on FIVE values, not on the program being COLOR. The 7-byte
-            # form hand-assembled through -P color is correct and is what
-            # test_typed_and_generic_forms_agree_... blesses; warning on it
-            # trains people to ignore the warning that matters.
+            # Gated on five values, not on the program being COLOR: the 7-byte
+            # form hand-assembled through -P color is correct, and warning on it
+            # would train people to ignore the warning that matters.
             if (program_number == HMTLprotocol.ProgramGeneric.NAME_MAP["color"]
                     and commandvalues is not None and len(commandvalues) == 5):
-                # -P color sends 32 raw bytes, so it cannot know the layout
-                # changed underneath it. It did: the range is now two
-                # little-endian uint16_t, not two bytes, so the old
-                # `-C r,g,b,start,length` form decodes as a huge start and the
-                # firmware refuses it. A note in a PR body is not visible to
-                # whoever runs the shell alias; this line is.
+                # -P color sends 32 raw bytes and so cannot know the range is
+                # two little-endian uint16_t: a `-C r,g,b,start,length` written
+                # for the old two-byte form decodes as a huge start and the
+                # firmware refuses it. Warn where the operator will see it.
                 print("WARNING: -P color sends raw bytes and the COLOR range is "
                       "now two little-endian\n"
                       "         uint16_t: 7 bytes, r g b start_lo start_hi "

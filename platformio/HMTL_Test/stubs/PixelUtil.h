@@ -92,22 +92,15 @@ class PixelUtil {
 public:
     PixelUtil() : _num(0), _leds(nullptr) {}
 
-    // _num is PIXEL_ADDR_TYPE, and that is a correction rather than tidiness.
-    // It used to be an unconditional uint16_t, which let tests build a
-    // 400-pixel strip on a DEFAULT-flag build — a configuration the real
-    // library refuses: ArduinoLibs' PixelUtil stores num_pixels as
-    // PIXEL_ADDR_TYPE and init() rejects _numPixels > 255 unless BIG_PIXELS is
-    // set. A test written against the old stub asserted behaviour in a strip
-    // the firmware cannot have, which is the same "checked against an
-    // environment that will never occur" shape this suite keeps finding.
-    /* Real HMTLTypes.cpp's pixel setup path calls init() on a default-constructed
-     * instance; mirror the allocating constructor. */
+    // _num is PIXEL_ADDR_TYPE, matching ArduinoLibs' PixelUtil: the real init()
+    // rejects more than 255 pixels unless -DBIG_PIXELS is set, so a wider _num
+    // here would let tests assert behaviour in a strip the firmware cannot have.
+    //
+    // HMTLTypes.cpp's pixel setup path calls init() on a default-constructed
+    // instance, so init() must narrow and complain exactly as the constructor
+    // does; a bare `_num = n; new CRGB[n]()` would allocate n while _num held
+    // the truncated value.
     void init(uint16_t n, uint8_t /*data*/, uint8_t /*clock*/, uint8_t /*order*/ = 0) {
-        // Narrows and complains exactly as the constructor does. Left as a bare
-        // `_num = n; new CRGB[n]()` this allocates n elements while _num holds
-        // the truncated value, and silently re-admits the impossible strips the
-        // constructor exists to reject — a test can simply reach the strip
-        // through init() instead. The two entry points must agree.
         delete[] _leds;
         _num  = (PIXEL_ADDR_TYPE)n;
         _leds = new CRGB[(PIXEL_ADDR_TYPE)n]();
@@ -122,13 +115,9 @@ public:
     }
 
     // Delegates to init(), mirroring the real library (ArduinoLibs
-    // PixelUtil.cpp:27-32, whose ctor is `initialized = false; init(...)`).
-    //
-    // This is not stylistic. Before delegating, init() had NO test executing it:
-    // every test built a strip through the constructor, so a mutation inside
-    // init() left the whole suite green. That is the guard-that-cannot-fail
-    // shape this PR exists to remove, reintroduced in the fix for it. With the
-    // delegation, breaking init() reddens 23 tests.
+    // PixelUtil.cpp:27-32). Every test builds its strip through the
+    // constructor, so this delegation is what puts init() under test: without
+    // it, a mutation inside init() leaves the whole suite green.
     PixelUtil(uint16_t n, uint8_t data, uint8_t clock, uint8_t order = 0)
         : _num(0), _leds(nullptr)
     {

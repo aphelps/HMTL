@@ -53,20 +53,17 @@ build-all:
 # test-layout-negative is in the default run, not an optional extra: it takes
 # ~60 s and it is the only thing standing between "the layout guard passed" and
 # "the layout guard cannot fail", which this subsystem has produced before.
-# The lesson that put it here: an assert written in terms of a configurable —
-# the colour struct was once sized `3 + 2 * sizeof(PIXEL_ADDR_TYPE)` — agrees
-# with whatever that configurable is, so it holds on both sides of the
-# disagreement it was meant to catch. Only a control that breaks each number
-# and demands a red build can tell those apart.
+# An assert written in terms of a configurable agrees with whatever that
+# configurable is, so it holds on both sides of the disagreement it was meant
+# to catch. Only a control that breaks each number and demands a red build
+# distinguishes a live guard from a dead one.
 test: test-python test-native test-simavr test-layout test-layout-negative
 
 # The DIRECTORY with the known-broken file excluded, rather than a list of
-# files to keep in sync. Naming files individually meant a new test file ran
-# under no target until someone remembered to add it here — which is the same
-# defect as a static_assert no toolchain compiles, and this recipe had it while
-# its own comment described it. --ignore keeps test_CircularBuffer's
-# pre-existing failures out of the default run without hiding anything else;
-# `make test-python-all` still includes them.
+# files to keep in sync: naming files individually lets a new test file run
+# under no target until someone remembers to add it here. --ignore keeps
+# test_CircularBuffer's pre-existing failures out of the default run without
+# hiding anything else; `make test-python-all` still includes them.
 test-python:
 	@echo "=== Track 1: Python emulator + protocol tests ==="
 	cd $(PYTHON_DIR) && $(PYTEST) hmtl/tests/ --ignore=hmtl/tests/test_CircularBuffer.py -v
@@ -76,10 +73,9 @@ test-python-all:
 	cd $(PYTHON_DIR) && $(PYTEST) hmtl/tests/ -v
 
 # BOTH pixel-width envs, not just the default one. tests/layout/ sweeps
-# -DBIG_PIXELS over the layout asserts, but until native_bigpixels existed
-# nothing compiled the flag into a RUNNING test — so an `#ifdef BIG_PIXELS`
-# branch in a test body was dead source, and the colour tests' wide-width half
-# (the payoff of widening the wire range) had never been built.
+# -DBIG_PIXELS over the layout asserts, but only native_bigpixels compiles the
+# flag into a RUNNING test; without it an `#ifdef BIG_PIXELS` branch in a test
+# body is dead source, including the colour tests' wide-width half.
 test-native:
 	@echo "=== Track 2: C++ native tests (both pixel widths) ==="
 	cd $(NATIVE_DIR) && $(PIO) test -e native

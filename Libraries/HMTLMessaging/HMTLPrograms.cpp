@@ -670,43 +670,37 @@ boolean program_color(msg_program_t *msg, program_tracker_t *tracker,
 
   /*
    * The wire range is uint16_t; setRangeRGB takes pixel_range_t, whose fields
-   * are PIXEL_ADDR_TYPE - uint8_t unless -DBIG_PIXELS. So this narrows, and a
-   * value that does not fit could not arrive before the range was widened but
-   * can now. Bound it here rather than relying on the callee: ArduinoLibs'
-   * setRangeRGB grew a bounds policy of its own only recently, this module may
-   * be built against an older copy, and a raw truncation of, say, start=256
-   * would silently address pixel 0.
+   * are PIXEL_ADDR_TYPE - uint8_t unless -DBIG_PIXELS - so this narrows. Bound
+   * it here rather than relying on the callee: this module may be built against
+   * an ArduinoLibs copy without a bounds policy, where a raw truncation of
+   * start=256 silently addresses pixel 0.
    *
-   * Zero length can never be MANUFACTURED here: the clamp only ever lowers a
-   * length to `avail`, which is >= 1, so an over-long range cannot degrade into
-   * a whole-strip fill. A zero that ARRIVES keeps its documented meaning, but
-   * only in the one form that can be meant - see the start != 0 check below.
-   * Do not "simplify" either half away.
+   * The clamp only ever lowers a length to `avail`, which is >= 1, so it cannot
+   * manufacture a zero length and turn an over-long range into a whole-strip
+   * fill. A zero that arrives keeps its documented meaning, in the one form
+   * that can be meant - see the start != 0 check below. Do not "simplify"
+   * either half away.
    *
-   * Everything out of range is rejected rather than clamped, and the DEBUG1
-   * lines are the point of it. `HMTLClient -P color -C r,g,b,start,length` used
-   * to emit the 5-byte form; sent at the new layout it decodes as a huge start,
-   * and these lines are what turn "the strip did nothing" into a diagnosis.
+   * Out-of-range values are rejected rather than clamped; the DEBUG1 lines are
+   * what turn "the strip did nothing" into a diagnosis.
    */
   uint16_t num = pixels->numPixels();
 
   /*
-   * The largest pixel index pixel_range_t can even express. On a default build
-   * that is 255 however long the strip is, so "in range for the strip" and
-   * "survives the narrowing" are two different questions and both are asked.
+   * The largest pixel index pixel_range_t can express - 255 on a default build,
+   * however long the strip is. "In range for the strip" and "survives the
+   * narrowing" are separate questions and both are asked.
    */
   const uint16_t addr_max = (uint16_t)(PIXEL_ADDR_TYPE)~(PIXEL_ADDR_TYPE)0;
 
   /*
-   * length == 0 means the whole strip, which makes `start` meaningless - so a
-   * NONZERO start with a zero length is not a request anyone can have meant.
-   * It is exactly what a stale 5-byte `-P color -C r,g,b,start,length`
-   * decodes to, and rejecting it HERE is what makes that rejection independent
-   * of how long the strip is. Every other check below would pass
-   * start=2560,length=0 through on a 3000-pixel -DBIG_PIXELS module - inside
-   * the strip, representable - and the module would flood. The one zero-length
-   * form that must survive is start == 0, which is what HMTLprotocol.py's
-   * zero-fill produces for a colour program carrying only an RGB triple.
+   * length == 0 means the whole strip, so a nonzero start with it is not a
+   * request anyone can have meant - and it is what a stale 5-byte
+   * `-P color -C r,g,b,start,length` decodes to. Rejecting on the pairing here
+   * is independent of strip length; every check below would pass
+   * start=2560,length=0 on a 3000-pixel -DBIG_PIXELS module and flood it. The
+   * one zero-length form that must survive is start == 0, which is what
+   * HMTLprotocol.py's zero-fill produces for an RGB-only colour program.
    */
   if ((color->range.length == 0) && (color->range.start != 0)) {
     DEBUG1_VALUELN("COLOR zero length needs zero start; got start:",
@@ -726,14 +720,10 @@ boolean program_color(msg_program_t *msg, program_tracker_t *tracker,
     DEBUG1_VALUELN(" numPixels:", num);
     return false;
   }
-  // Belt and braces, and SUBSUMED today - said plainly, because an earlier
-  // version of this comment claimed it was load-bearing and it is not.
-  // ArduinoLibs' PixelUtil stores num_pixels as PIXEL_ADDR_TYPE and its init()
-  // refuses more than 255 pixels unless BIG_PIXELS is set, so numPixels() can
-  // never exceed addr_max and the check above always fires first. It is kept
-  // because it is the only thing that would catch numPixels() and
-  // PIXEL_ADDR_TYPE drifting apart - the narrowing below is only safe while
-  // they agree - not because any current input reaches it.
+  // Subsumed by the check above: PixelUtil stores num_pixels as
+  // PIXEL_ADDR_TYPE, so numPixels() cannot exceed addr_max. Kept because it is
+  // the only thing that would catch numPixels() and PIXEL_ADDR_TYPE drifting
+  // apart, which the narrowing below depends on.
   if (color->range.start > addr_max) {
     DEBUG1_VALUE("COLOR start not representable in PIXEL_ADDR_TYPE:",
                  color->range.start);

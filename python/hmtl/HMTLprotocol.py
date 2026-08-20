@@ -749,15 +749,13 @@ class ProgramColor(Msg):
     FORMAT = "<%s%s" % (BASE_FORMAT, 'B' * PADDING)
 
     def __init__(self, values, start=0, length=0):
-        # Everything is checked at construction, not at pack(), so the traceback
-        # points at the caller that chose the values.
+        # Everything is checked at construction, not at pack(), so the
+        # traceback points at the caller that chose the values.
         #
-        # The width checks are not padding around the interesting rule: without
-        # them an out-of-range field escapes as a struct.error from pack(), and
-        # struct.error is NOT a ValueError, so a caller catching ValueError (as
-        # HMTLClient does) gets a raw traceback instead of its message. Making
-        # this the single failure mode is what lets that except clause mean
-        # something.
+        # The width checks matter as much as the pairing rule: without them an
+        # out-of-range field escapes pack() as a struct.error, which is not a
+        # ValueError, so a caller catching ValueError (as HMTLClient does) gets
+        # a raw traceback instead of its message.
         if len(values) != 3:
             raise ValueError("COLOR needs exactly 3 colour values (r, g, b); "
                              "got %d" % len(values))
