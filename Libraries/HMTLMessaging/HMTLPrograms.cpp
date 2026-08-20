@@ -664,10 +664,88 @@ boolean program_color(msg_program_t *msg, program_tracker_t *tracker,
   DEBUG3_VALUE(" g:", color->color.g);
   DEBUG3_VALUE(" b:", color->color.b);
   DEBUG3_VALUE(" Ran:", color->range.start);
-  DEBUG3_VALUELN("-", color->range.start + color->range.length - 1);
+  DEBUG3_VALUELN("+", color->range.length);
 
   PixelUtil *pixels = (PixelUtil*)object;
-  pixels->setRangeRGB(color->range, color->color);
+
+  /*
+   * The wire range is uint16_t; setRangeRGB takes pixel_range_t, whose fields
+   * are PIXEL_ADDR_TYPE - uint8_t unless -DBIG_PIXELS - so this narrows. Bound
+   * it here rather than relying on the callee: this module may be built against
+   * an ArduinoLibs copy without a bounds policy, where a raw truncation of
+   * start=256 silently addresses pixel 0.
+   *
+   * The clamp only ever lowers a length to `avail`, which is >= 1, so it cannot
+   * manufacture a zero length and turn an over-long range into a whole-strip
+   * fill. A zero that arrives keeps its documented meaning, in the one form
+   * that can be meant - see the start != 0 check below. Do not "simplify"
+   * either half away.
+   *
+   * Out-of-range values are rejected rather than clamped; the DEBUG1 lines are
+   * what turn "the strip did nothing" into a diagnosis.
+   */
+  uint16_t num = pixels->numPixels();
+
+  /*
+   * The largest pixel index pixel_range_t can express - 255 on a default build,
+   * however long the strip is. "In range for the strip" and "survives the
+   * narrowing" are separate questions and both are asked.
+   */
+  const uint16_t addr_max = (uint16_t)(PIXEL_ADDR_TYPE)~(PIXEL_ADDR_TYPE)0;
+
+  /*
+   * length == 0 means the whole strip, so a nonzero start with it is not a
+   * request anyone can have meant - and it is what a stale 5-byte
+   * `-P color -C r,g,b,start,length` decodes to. Rejecting on the pairing here
+   * is independent of strip length; every check below would pass
+   * start=2560,length=0 on a 3000-pixel -DBIG_PIXELS module and flood it. The
+   * one zero-length form that must survive is start == 0, which is what
+   * HMTLprotocol.py's zero-fill produces for an RGB-only colour program.
+   */
+  if ((color->range.length == 0) && (color->range.start != 0)) {
+    DEBUG1_VALUELN("COLOR zero length needs zero start; got start:",
+                   color->range.start);
+    return false;
+  }
+
+  /* Reported separately, because "this output has no pixels", "that pixel is
+   * off the end of this strip" and "that index does not fit the address type"
+   * send you to three different places. */
+  if (num == 0) {
+    DEBUG1_PRINTLN("COLOR: output has no pixels");
+    return false;
+  }
+  if (color->range.start >= num) {
+    DEBUG1_VALUE("COLOR start past end of strip:", color->range.start);
+    DEBUG1_VALUELN(" numPixels:", num);
+    return false;
+  }
+  // Subsumed by the check above: PixelUtil stores num_pixels as
+  // PIXEL_ADDR_TYPE, so numPixels() cannot exceed addr_max. Kept because it is
+  // the only thing that would catch numPixels() and PIXEL_ADDR_TYPE drifting
+  // apart, which the narrowing below depends on.
+  if (color->range.start > addr_max) {
+    DEBUG1_VALUE("COLOR start not representable in PIXEL_ADDR_TYPE:",
+                 color->range.start);
+    DEBUG1_VALUELN(" max:", addr_max);
+    return false;
+  }
+
+  pixel_range_t range;
+  uint16_t avail = num - color->range.start;   // >= 1, since start < num
+  if (avail > addr_max) avail = addr_max;      // and representable, still >= 1
+  range.start = (PIXEL_ADDR_TYPE)color->range.start;
+  // No min(): the AVR core's min is a function-like macro, so min<uint16_t>()
+  // is not expanded and leaves an undeclared template, and the native suite's
+  // stub Arduino.h declares no min at all.
+  if (color->range.length > avail) {
+    DEBUG1_VALUELN("COLOR length clamped to:", avail);
+    range.length = (PIXEL_ADDR_TYPE)avail;
+  } else {
+    range.length = (PIXEL_ADDR_TYPE)color->range.length;
+  }
+
+  pixels->setRangeRGB(range, color->color);
 
   return false;
 }

@@ -65,6 +65,12 @@ def handle_args():
     group.add_option("--sparkle", action="store_const",
                       dest="commandtype", const="sparkle",
                       help="Sparkle program")
+    group.add_option("--color", action="store_const",
+                      dest="commandtype", const="color",
+                      help="Set a range of pixels to one colour: "
+                           "-C r,g,b[,start,length]. Omitting start/length, or "
+                           "giving 0,0, means the whole strip; a nonzero start "
+                           "needs a nonzero length")
     group.add_option("--sequence", action="store_const",
                       dest="commandtype", const="sequence",
                       help="Trigger outputs in sequence: -C out:dur_ms:val,out:dur_ms:val,...")
@@ -249,6 +255,39 @@ def main():
                                                int(pattern), int(flags))
         msg = program.prepare_msg(options.hmtladdress, options.output)
 
+    elif (options.commandtype == "color"):
+        parts = options.commandvalue.split(",")
+        if len(parts) not in (3, 5):
+            print("--color takes r,g,b or r,g,b,start,length; got %d values"
+                  % len(parts))
+            sys.exit(1)
+        # Parsing and validation are separate steps with separate messages, so
+        # a typo'd `--color 255,0,x` reports the parse failure rather than a
+        # validation one.
+        try:
+            nums = [int(p) for p in parts]
+        except ValueError:
+            print("--color values must be integers; got: %s"
+                  % options.commandvalue)
+            sys.exit(1)
+        (r, g, b) = nums[:3]
+        (start, length) = nums[3:5] if len(nums) == 5 else (0, 0)
+
+        # Construct before announcing, so a refused message is never reported
+        # as sent.
+        try:
+            program = HMTLprotocol.ProgramColor([r, g, b], start, length)
+        except ValueError as e:
+            # ProgramColor range-checks every field, so this is the only
+            # failure mode left here.
+            print("%s" % e)
+            sys.exit(1)
+        print("Sending COLOR message. Address=%d Output=%d Value=%s start=%d length=%d%s" %
+              (options.hmtladdress, options.output,
+               [r, g, b], start, length,
+               " (whole strip)" if length == 0 else ""))
+        msg = program.prepare_msg(options.hmtladdress, options.output)
+
     elif (options.commandtype == "sequence"):
         steps = []
         for step_str in options.commandvalue.split(","):
@@ -272,6 +311,29 @@ def main():
         if not program_number:
             print("Unknown program value %s" % options.program)
         else:
+            # Gated on five values, not on the program being COLOR: the 7-byte
+            # form hand-assembled through -P color is correct, and warning on it
+            # would train people to ignore the warning that matters.
+            if (program_number == HMTLprotocol.ProgramGeneric.NAME_MAP["color"]
+                    and commandvalues is not None and len(commandvalues) == 5):
+                # -P color sends 32 raw bytes and so cannot know the range is
+                # two little-endian uint16_t: a `-C r,g,b,start,length` written
+                # for the old two-byte form decodes as a huge start and the
+                # firmware refuses it. Warn where the operator will see it.
+                print("WARNING: -P color sends raw bytes and the COLOR range is "
+                      "now two little-endian\n"
+                      "         uint16_t: 7 bytes, r g b start_lo start_hi "
+                      "length_lo length_hi.\n"
+                      "         A 5-byte `-C r,g,b,start,length` is MISREAD — "
+                      "the old start and\n"
+                      "         length land in the HIGH halves, so "
+                      "`-C 255,0,0,0,10` becomes\n"
+                      "         start=2560, length=0. Every 5-byte form leaves "
+                      "the wire length\n"
+                      "         zero, and the module rejects a zero length "
+                      "with a nonzero start\n"
+                      "         on every strip and both -DBIG_PIXELS settings. "
+                      "Use --color instead.")
             print("Sending generic program message. Address=%d Output=%d program=%s data=%s" %
                 (options.hmtladdress, options.output, options.program, commandvalues))
 

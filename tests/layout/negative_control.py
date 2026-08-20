@@ -51,9 +51,12 @@ ASSERT_RE = re.compile(
     r"HMTL_LAYOUT_SIZE\(|HMTL_LAYOUT_OFF\(|WF_SIZE\(|WF_OFF\(|static_assert\("
 )
 
-# Both settings of the flag, because -DBIG_PIXELS is the only configuration in
-# which hmtl_program_color_t ever had the interior-padding bug: at the default
-# width the struct is 5 bytes with range at 3 on every ABI, packed or not.
+# Both settings of the flag. It was added for hmtl_program_color_t, which used
+# to embed pixel_range_t and so had a flag-dependent wire layout; that struct is
+# now fixed-width and identical under both settings. The asserts that still
+# differ per variant are the pixel_range_t pair in HMTLPrograms.h — 2 bytes by
+# default, 4 under -DBIG_PIXELS — each compiled by only one half of this axis,
+# which is why a perturbation counts as caught if ANY variant goes red.
 PIXEL_VARIANTS = [("default", []), ("BIG_PIXELS", ["-DBIG_PIXELS"])]
 
 BASE_FLAGS = [
