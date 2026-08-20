@@ -687,6 +687,112 @@ class ProgramCircular(Msg):
         return hdr.pack() + programhdr.pack() + self.pack()
 
 
+class ProgramColor(Msg):
+    """Set a range of pixels to one colour — hmtl_program_color_t.
+
+    THE RANGE FIELDS ARE TWO LITTLE-ENDIAN uint16_t, and this class exists
+    because they did not used to be. The C struct embedded pixel_range_t, whose
+    fields are PIXEL_ADDR_TYPE — uint8_t by default, uint16_t under
+    -DBIG_PIXELS — so the wire layout followed a build flag and two ATMega328
+    modules built with different flags disagreed about it.
+
+    Nothing here had a typed encoder before: the only in-tree producer was
+    `HMTLClient -P color -C r,g,b,start,length`, which goes through
+    ProgramGeneric's 32 raw bytes and therefore emitted the 5-byte form without
+    ever naming a layout. That is much of why the struct drifted unnoticed —
+    every other program has a class like this one, and COLOR did not.
+
+        7 bytes: r g b start_lo start_hi length_lo length_hi
+
+    VALIDITY RULE, enforced here and by the firmware: length == 0 means the
+    WHOLE strip, which makes start meaningless, so a nonzero start with a zero
+    length is rejected rather than sent. Only start == 0 may carry length == 0
+    — which is what this class's own zero-fill produces for a colour program
+    given nothing but an RGB triple.
+
+    That rule is not decoration, it is what makes a stale
+    `-P color -C r,g,b,start,length` refusable at all. Those five bytes leave
+    wire bytes 5-6 zero, so the wire length is ALWAYS 0 and the old start lands
+    in the high half of the new one; rejecting on the start/length pairing
+    catches every such invocation, on every strip length and both settings of
+    -DBIG_PIXELS. Rejecting on the magnitude of start instead would let
+    start=2560 through on a 3000-pixel module and flood it.
+
+    What this class can and cannot catch, stated so the guarantee is not
+    over-read. It checks what is knowable WITHOUT the strip: field widths and
+    the start/length pairing. The module additionally rejects a start past the
+    end of its own strip, and one beyond what PIXEL_ADDR_TYPE can address
+    (255 on a default build) — neither of which a sender can evaluate, since it
+    does not know how many pixels the target has. So `ProgramColor([0, 0, 255],
+    start=300, length=10)` packs happily here and is dropped by a default-width
+    module, with a DEBUG1 line naming the reason. An over-long LENGTH is not
+    dropped but silently clamped to the end of the strip — the one out-of-range
+    case that still lights something, so do not read a lit strip as proof the
+    range was accepted verbatim.
+
+    And one in-tree receiver ignores the range altogether: WLED's RS485 bridge
+    (usermods/rs485_bridge/usermod_rs485_bridge.cpp) handles PROGRAM_COLOR by
+    reading only the RGB triple at offset 0, so a COLOR sent through it lights
+    whatever that usermod lights regardless of start and length. Worth knowing
+    before concluding a module misparsed the range — it may never have read it.
+
+    Raising for what it CAN see is still the point of having two
+    implementations: an operator finds out at the CLI for every mistake that
+    does not depend on the target.
+    """
+    TYPE = "PROGRAMCOLOR"
+    TYPE_NUM = ProgramGeneric.NAME_MAP["color"]
+
+    BASE_FORMAT = 'BBBHH'
+    BASE_FORMAT_LENGTH = 7
+    PADDING = ProgramHdr.MAX_DATA - BASE_FORMAT_LENGTH
+    FORMAT = "<%s%s" % (BASE_FORMAT, 'B' * PADDING)
+
+    def __init__(self, values, start=0, length=0):
+        # Everything is checked at construction, not at pack(), so the
+        # traceback points at the caller that chose the values.
+        #
+        # The width checks matter as much as the pairing rule: without them an
+        # out-of-range field escapes pack() as a struct.error, which is not a
+        # ValueError, so a caller catching ValueError (as HMTLClient does) gets
+        # a raw traceback instead of its message.
+        if len(values) != 3:
+            raise ValueError("COLOR needs exactly 3 colour values (r, g, b); "
+                             "got %d" % len(values))
+        for name, v in zip(("r", "g", "b"), values):
+            if not 0 <= v <= 0xff:
+                raise ValueError("COLOR %s must be 0-255; got %d" % (name, v))
+        for name, v in (("start", start), ("length", length)):
+            if not 0 <= v <= 0xffff:
+                raise ValueError("COLOR %s must be 0-65535 (it is a uint16_t on "
+                                 "the wire); got %d" % (name, v))
+        if length == 0 and start != 0:
+            raise ValueError(
+                "COLOR length 0 means the whole strip, so start must be 0; "
+                "got start=%d. The module rejects this message. If you meant "
+                "'from %d to the end', give an explicit length." %
+                (start, start))
+        self.values = values
+        self.start = start
+        self.length = length
+
+    def pack(self):
+        return struct.pack(self.FORMAT,
+                           self.values[0],
+                           self.values[1],
+                           self.values[2],
+                           self.start,
+                           self.length,
+                           *[0 for i in range(self.PADDING)])
+
+    def prepare_msg(self, address, output):
+        hdr = MsgHdr(length=MsgHdr.LENGTH + ProgramHdr.LENGTH,
+                     mtype=MSG_TYPE_OUTPUT,
+                     address=address)
+        programhdr = ProgramHdr(self.TYPE_NUM, output)
+        return hdr.pack() + programhdr.pack() + self.pack()
+
+
 class ProgramSequence(Msg):
     """Trigger multiple value-type outputs in sequence (e.g. fixed LEDs or poofers).
     Uses HMTL_NO_OUTPUT (255) as the registered output since the program manages

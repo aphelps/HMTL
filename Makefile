@@ -52,22 +52,34 @@ build-all:
 
 # test-layout-negative is in the default run, not an optional extra: it takes
 # ~60 s and it is the only thing standing between "the layout guard passed" and
-# "the layout guard cannot fail", which this subsystem has produced before —
-# including once in this very change, where the colour struct's packing guard
-# could not fail until the sweep started compiling -DBIG_PIXELS as well.
+# "the layout guard cannot fail", which this subsystem has produced before.
+# An assert written in terms of a configurable agrees with whatever that
+# configurable is, so it holds on both sides of the disagreement it was meant
+# to catch. Only a control that breaks each number and demands a red build
+# distinguishes a live guard from a dead one.
 test: test-python test-native test-simavr test-layout test-layout-negative
 
+# The DIRECTORY with the known-broken file excluded, rather than a list of
+# files to keep in sync: naming files individually lets a new test file run
+# under no target until someone remembers to add it here. --ignore keeps
+# test_CircularBuffer's pre-existing failures out of the default run without
+# hiding anything else; `make test-python-all` still includes them.
 test-python:
-	@echo "=== Track 1: Python emulator tests ==="
-	cd $(PYTHON_DIR) && $(PYTEST) hmtl/tests/test_emulator.py -v
+	@echo "=== Track 1: Python emulator + protocol tests ==="
+	cd $(PYTHON_DIR) && $(PYTEST) hmtl/tests/ --ignore=hmtl/tests/test_CircularBuffer.py -v
 
 # Run the full Python test suite (includes pre-existing failures in test_CircularBuffer)
 test-python-all:
 	cd $(PYTHON_DIR) && $(PYTEST) hmtl/tests/ -v
 
+# BOTH pixel-width envs, not just the default one. tests/layout/ sweeps
+# -DBIG_PIXELS over the layout asserts, but only native_bigpixels compiles the
+# flag into a RUNNING test; without it an `#ifdef BIG_PIXELS` branch in a test
+# body is dead source, including the colour tests' wide-width half.
 test-native:
-	@echo "=== Track 2: C++ native tests ==="
+	@echo "=== Track 2: C++ native tests (both pixel widths) ==="
 	cd $(NATIVE_DIR) && $(PIO) test -e native
+	cd $(NATIVE_DIR) && $(PIO) test -e native_bigpixels
 
 test-simavr:
 	@echo "=== Track 3: AVR firmware build check (avr-gcc) ==="

@@ -38,6 +38,11 @@
  *   hmtl_program_color_t   7 B on AVR under -DBIG_PIXELS (range at 3)
  *                          8 B on 32-bit (range at 4)      - INTERIOR padding
  *
+ * hmtl_program_color_t is 7 B with range at 3 on every ABI and under both
+ * settings of -DBIG_PIXELS: its range is wire_pixel_range_t, which does not
+ * depend on the flag. The -DBIG_PIXELS axis in tests/layout/ is held up by the
+ * pixel_range_t asserts at the foot of this header.
+ *
  * and four more differed in size only, which still matters because sizeof feeds
  * the length a peer checks: timed_change 10/12, fade 11/12, sparkle 13/14,
  * circular 9/10. sequence (32) and brightness (1) never diverged; they are
@@ -219,10 +224,38 @@ boolean program_brightness(msg_program_t *msg, program_tracker_t *tracker,
 
 /*
  * Program that sets the color for a range of pixels
+ *
+ * The range is wire_pixel_range_t, not pixel_range_t: pixel_range_t is two
+ * PIXEL_ADDR_TYPE, whose width follows -DBIG_PIXELS, and a wire layout may not
+ * depend on a build flag. uint16_t because -DBIG_PIXELS builds address strips
+ * longer than 255.
+ *
+ * VALIDITY RULE: length == 0 means the whole strip, so start is meaningless
+ * with it and a nonzero start paired with a zero length is REJECTED. Only
+ * start == 0 may carry length == 0.
+ *
+ * This also rejects a stale 5-byte `-P color -C r,g,b,start,length`: those five
+ * bytes leave wire bytes 5-6 zero, so the wire length is always 0 and the old
+ * start lands in the high half of the new one. python/'s ProgramColor raises on
+ * the same pairing, so a sender is told at the CLI.
+ *
+ * program_color() converts to pixel_range_t at the setRangeRGB call, bounding
+ * both fields on the way; see HMTLPrograms.cpp.
+ *
+ * There is no hmtl_program_color_fmt(): nothing in C originates a COLOR
+ * message, so it would be an encoder with no caller and no test. Add one, with
+ * a test, when something needs to send one. The layout's independent statements
+ * are python/'s ProgramColor and the hand-transcribed bytes in HMTL_Test's
+ * test_pixel_programs.
  */
 typedef struct __attribute__((__packed__)) {
+  uint16_t start;
+  uint16_t length;
+} wire_pixel_range_t;
+
+typedef struct __attribute__((__packed__)) {
   CRGB color;
-  pixel_range_t range;
+  wire_pixel_range_t range;
 } hmtl_program_color_t;
 boolean program_color(msg_program_t *msg, program_tracker_t *tracker,
                       output_hdr_t *output, void *object,
@@ -376,24 +409,37 @@ HMTL_LAYOUT_OFF(hmtl_program_circular_t, pattern, 7);
 HMTL_LAYOUT_OFF(hmtl_program_circular_t, flags, 8);
 
 /*
- * hmtl_program_color_t is asserted as an expression, not a literal, because it
- * is the one struct here whose wire width follows a BUILD FLAG rather than the
- * target: pixel_range_t is two PIXEL_ADDR_TYPE, which is uint8_t by default and
- * uint16_t under -DBIG_PIXELS (PixelUtil.h), and real envs differ -
- * lightbringer_*, rfm_328_10_2 and esp32_routed set it; nano, uno and
- * esp32_breadboard do not. So this struct is 5 B by default and 7 B under
- * BIG_PIXELS, and two AVR modules built with different flags ALREADY disagree
- * about it. Packing fixes AVR-vs-ESP32 for each flag setting (32-bit put range
- * at 4 under BIG_PIXELS); it does NOT fix flag-vs-flag, which is a
- * fleet-compatibility decision rather than a layout one - see the follow-up task.
- *
- * Written this way the assert pins the thing packing actually guarantees - no
- * padding, range immediately after the 3-byte colour - under every flag
- * combination, and it holds against the native suite's stub PixelUtil too.
+ * These sizes are literals, not expressions in sizeof(PIXEL_ADDR_TYPE): an
+ * assert written in terms of a configurable agrees with whatever that
+ * configurable is, and so cannot catch the two sides disagreeing. The property
+ * being checked is that the same 7 holds under both -DBIG_PIXELS settings.
  */
-HMTL_LAYOUT_SIZE(hmtl_program_color_t, 3 + 2 * sizeof(PIXEL_ADDR_TYPE));
+HMTL_LAYOUT_SIZE(wire_pixel_range_t, 4);
+HMTL_LAYOUT_OFF(wire_pixel_range_t, start, 0);
+HMTL_LAYOUT_OFF(wire_pixel_range_t, length, 2);
+
+HMTL_LAYOUT_SIZE(hmtl_program_color_t, 7);
 HMTL_LAYOUT_OFF(hmtl_program_color_t, color, 0);
 HMTL_LAYOUT_OFF(hmtl_program_color_t, range, 3);
+
+/*
+ * pixel_range_t is not on the wire, but it is what setRangeRGB takes, so
+ * program_color() narrows into it and the narrowing has to know how wide the
+ * target is. Pinning it is also what keeps the sweep's -DBIG_PIXELS axis able
+ * to fail at all: with hmtl_program_color_t fixed-width, every other assert
+ * here compiles identically under both settings.
+ *
+ * Scope: tests/layout/ puts -I$(STUBS) on the include path, so within the sweep
+ * this pins HMTL_Test's PixelUtil stub, not ArduinoLibs' shipped header. A TU
+ * compiling this header against the real copy checks that one instead.
+ */
+static_assert(sizeof(pixel_range_t) == 2 * sizeof(PIXEL_ADDR_TYPE),
+              "pixel_range_t must be two bare PIXEL_ADDR_TYPE with no padding");
+#ifdef BIG_PIXELS
+static_assert(sizeof(pixel_range_t) == 4, "pixel_range_t is 4 B under -DBIG_PIXELS");
+#else
+static_assert(sizeof(pixel_range_t) == 2, "pixel_range_t is 2 B by default");
+#endif
 #endif /* DISABLE_PIXELUTIL */
 
 #undef HMTL_LAYOUT_SIZE
