@@ -38,8 +38,19 @@ def handle_args():
                       help="Set address")
     parser.add_option("-i", "--device_id", dest="device_id", type="int",
                       help="Set device_id")
+    # -b/--baud used to mean two different things at once: the baud to talk to
+    # the module at, *and* a new baud to write into its config.  With a default
+    # of 9600 that meant a plain `HMTLConfig -p` silently sent a baud update as
+    # a side effect of printing.  They are now separate flags.
     parser.add_option("-b", "--baud", dest="baud", type="int",
-                      help="Set baud", default=9600)
+                      help="Baud to connect at ([9600]).  The setup sketches "
+                           "this tool drives -- HMTLPythonConfig, HMTL_Bringup, "
+                           "HMTL_Upgrade_Version -- all run Serial.begin(9600); "
+                           "pass 115200 for a RUNNING module (HMTL_Module.ino "
+                           "defines BAUD 115200).",
+                      default=9600)
+    parser.add_option("--set-baud", dest="set_baud", type="int",
+                      help="Write this baud into the module's configuration")
 
     parser.add_option("-w", "--write", dest="writeconfig", action="store_true",
                       help="Write configuration", default=False)
@@ -59,11 +70,11 @@ def handle_args():
         (options.dumpconfig is False) and
         (options.address is None) and
         (options.device_id is None) and
-        (options.baud is None)):
+        (options.set_baud is None)):
         parser.print_help()
         exit("Must specify mode")
 
-    if ((options.baud != None) and (options.baud % 1200 != 0)):
+    if ((options.set_baud != None) and (options.set_baud % 1200 != 0)):
         exit("Baud must be a multiple of 1200")
 
     if options.device is None and options.ip is None:
@@ -72,6 +83,8 @@ def handle_args():
         if options.device == None:
             parser.print_help()
             exit("Must specify device")
+
+    # No default connection baud -- see SerialBuffer.__init__.
 
     if (options.printconfig):
         options.verbose = True
@@ -141,10 +154,10 @@ def main():
             # Set the device_id in the read config
             print("* Setting device_id to %d" % options.device_id)
             config_data["header"]["device_id"] = options.device_id
-        if (options.baud != None):
+        if (options.set_baud != None):
             # Set the baud in the read config
-            print("* Setting baud to %d" % options.baud)
-            config_data["header"]["baud"] = options.baud
+            print("* Setting baud to %d" % options.set_baud)
+            config_data["header"]["baud"] = options.set_baud
 
     # Open the serial connection and wait for connection
     if options.device:
@@ -153,7 +166,10 @@ def main():
         buff = SocketBuffer(options.ip, options.port)
     else:
         exit("No device or address specified")
-    ser = HMTLSerial(buff, verbose=options.verbose)
+    try:
+        ser = HMTLSerial(buff, verbose=options.verbose)
+    except HMTLReadyTimeout as e:
+        exit(str(e))
 
     if options.dumpconfig:
         # Use the binary formatted method for requesting the module
@@ -206,9 +222,9 @@ def main():
         if (options.device_id != None):
             # Send the device_id update
             send_device_id(options.device_id)
-        if (options.baud != None):
+        if (options.set_baud != None):
             # Send the baud update
-            send_baud(options.baud)
+            send_baud(options.set_baud)
 
     if (options.verbose):
         # Have the module output its entire configuration

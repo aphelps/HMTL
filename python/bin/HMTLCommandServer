@@ -17,7 +17,11 @@ def handle_args():
     parser.add_option("-d", "--device", dest="device",
                       help="Arduino USB device")
     parser.add_option("-b", "--baud", dest="baud", type="int",
-                      help="Serial port baud (9600, 19200, 57600, [115200])",
+                      help="Serial port baud (9600, 19200, 57600, [115200]).  "
+                           "Running HMTL modules and the ESP32 console are both "
+                           "115200 (HMTL_Module.ino defines BAUD 115200); the "
+                           "setup sketches are 9600 and HMTL_Command_CLI is "
+                           "57600.",
                       default=115200)
     parser.add_option("-I", "--ip", dest="ip",
                       help="IP of device to connect to")
@@ -43,7 +47,7 @@ def handle_args():
         if options.device == None:
             parser.print_help()
             exit("Must specify device")
-    
+
     return (options, args)
  
 def main():
@@ -56,7 +60,10 @@ def main():
         buff = SocketBuffer(options.ip, options.deviceport)
     else:
         exit("No device or address specified")
-    ser = HMTLSerial(buff, verbose=options.verbose)
+    try:
+        ser = HMTLSerial(buff, verbose=options.verbose)
+    except HMTLReadyTimeout as e:
+        exit(str(e))
 
     server = HMTLServer(ser, (options.address, options.port),
                         options.devicescan)

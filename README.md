@@ -51,6 +51,62 @@ There are python libraries provided for communicating with the modules and sever
 * [Scan.py](python/Scan.py): Send out polling commands via a command server to find all connected modules
 * [HMTLWebClient.py](python/HMTLWebClient.py): Present a web page to control modules connected to a command server
 
+### Connecting over USB serial
+
+The tools that open a serial port (`TailArduino`, `HMTLConfig`, `HMTLCommandServer`)
+require an explicit `--baud`; there is no default, because no single value is right
+for more than one kind of device:
+
+| Device | Console baud |
+| --- | --- |
+| AVR HMTL modules | 57600 |
+| ESP32 boards (e.g. the fire controller) | 115200 |
+| Older HMTL boards | 9600 |
+
+```bash
+# ESP32 gateway on USB, serving HMTLClient over the network
+bin/HMTLCommandServer -d /dev/cu.usbserial-XXXX -b 115200
+bin/HMTLClient -A 129 -V -O 0 -C 255
+```
+
+Opening the port tries not to reset the attached device, so that attaching to a
+controller that is already running a show leaves it running. What that is worth
+depends on the board, and it is worth being precise:
+
+* **Guaranteed in software.** The OS raises DTR and RTS when the device node is
+  opened, before any of our code runs; all we control is the order they come
+  back down in. We bring RTS down first and DTR second, so the pair never sits
+  at DTR-low/RTS-high — the state an ESP32's auto-reset circuit reads as
+  EN-low. HUPCL is also cleared, so the tty layer does not drop the lines at
+  exit (belt-and-braces: they are already low by then).
+* **Platform-dependent: the order the driver *raises* DTR and RTS inside
+  `os.open()`.** Every session here ends with both lines low (and HUPCL
+  cleared), so the next open starts from DTR-low/RTS-low and the driver raises
+  both. If it raises RTS first, the pair passes through DTR-low/RTS-high — the
+  EN-low state again — before our code gets a say. Whether that happens, and
+  for how long, is up to the adapter's driver (FTDI, CP2102 and CH340 do not
+  all behave alike; the in-tree Linux `dtr_rts` callbacks appear to set both
+  bits in one control transfer, which leaves the macOS drivers as the open
+  question). That edge is only observable on a scope or logic analyser, and is
+  on the bench checklist — **not yet confirmed on hardware**.
+* **Not possible at all on AVR boards** (e.g. module 72's FTDI). Their reset is
+  edge-triggered through a DTR capacitor and the edge happens inside the
+  `open()` syscall. No software setting suppresses it: connecting to an AVR
+  module reboots it, as it always has.
+
+Pass `reset_on_open=True` to `SerialBuffer` for the old, deliberate
+reboot-on-connect behaviour.
+
+Where the device is not reset, its `ready` announcement comes from
+`MessageHandler::serial_ready()`'s periodic resend rather than from a boot
+banner, so connecting can take up to ~11 s (`READY_THRESHOLD` +
+`READY_RESEND_PERIOD`) against a device that has recently been talked to.
+
+**Changed in this release:** `HMTLConfig -b N` used to mean both "connect at N"
+and "write N into the module's stored config". It now only selects the connect
+baud; use `--set-baud N` to write a baud into the config. Previously a plain
+`HMTLConfig -p` (print) would silently write the default 9600 into the module.
+
 Testing
 -------
 
