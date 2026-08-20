@@ -28,7 +28,10 @@
 
 #include <WiFiBase.h>
 
-WiFiBase wfb;
+/* useStored=false: at static-init the WiFi driver is not up, so the
+ * constructor's stored-SSID probe reads nothing; the sentinel is added
+ * explicitly in api_setup instead. */
+WiFiBase wfb(false);
 
 static Socket **sockets;
 static MessageHandler *handler;
@@ -42,8 +45,13 @@ setup_HMTL_API(Socket **s, MessageHandler *h, config_hdr_t *c) {
 
   DEBUG4_PRINTLN("Initializing up API");
 
-  /* Startup a connection and add a wifi socket */
-  wfb = WiFiBase();
+  /* Startup a connection and add a wifi socket.  No re-assignment here:
+   * WiFiBase owns heap state with no copy operations, so assigning a
+   * temporary would free the buffers the global keeps pointing at. */
+  wfb.addKnownNetwork("", "");   // retry the SDK-stored network
+  /* This module's endpoints predate WiFiBase's config-endpoint auth and its
+   * callers expect them open; opt out explicitly. */
+  wfb.allowUnauthenticatedConfig(true);
   wfb.configureAccessPoint("HMTL_Module", "12345678");
   wfb.startup();
 
