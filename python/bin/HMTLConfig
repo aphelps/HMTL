@@ -46,8 +46,8 @@ def handle_args():
                       help="Baud to connect at ([9600]).  The setup sketches "
                            "this tool drives -- HMTLPythonConfig, HMTL_Bringup, "
                            "HMTL_Upgrade_Version -- all run Serial.begin(9600); "
-                           "pass 57600 for a running AVR module or 115200 for "
-                           "an ESP32 console.",
+                           "pass 115200 for a RUNNING module (HMTL_Module.ino "
+                           "defines BAUD 115200).",
                       default=9600)
     parser.add_option("--set-baud", dest="set_baud", type="int",
                       help="Write this baud into the module's configuration")

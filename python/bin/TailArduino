@@ -20,8 +20,9 @@ def handle_args():
     parser.add_argument("-b", "--baud", dest="baud", type=int,
                         help="Serial port baud ([9600], 19200, 57600, 115200).  "
                              "The setup and test sketches this tool tails run "
-                             "Serial.begin(9600); pass 57600 for a running AVR "
-                             "module or 115200 for an ESP32 console.",
+                             "Serial.begin(9600); pass 115200 for a RUNNING HMTL "
+                             "module or an ESP32 console, 57600 for "
+                             "HMTL_Command_CLI.",
                         default=9600)
     
     parser.add_argument("-t", "--timestamp", dest="timestamp",
