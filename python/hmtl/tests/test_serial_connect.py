@@ -695,30 +695,33 @@ _BIN = os.path.join(
 _NOT_A_DEVICE = "/nonexistent/hmtl-test-tty"
 
 
-@pytest.mark.parametrize("tool", ["HMTLConfig", "TailArduino"])
-def test_serial_tools_refuse_to_run_without_a_baud(tool):
-    """These tools must be told which baud to open a port at.
+@pytest.mark.parametrize("tool,expected", [
+    ("HMTLCommandServer", 115200),
+    ("HMTLConfig", 9600),
+    ("TailArduino", 9600),
+])
+def test_serial_tools_keep_their_historical_baud_defaults(tool, expected):
+    """Each tool defaults to the baud of the sketches it actually talks to.
 
-    HMTLCommandServer is deliberately NOT in this list: it defaults to
-    115200, which is what it did before this branch and what Adam asked
-    to keep (PR #14).  HMTLConfig and TailArduino previously defaulted to
-    9600 -- a value that matches NO device in this fleet (AVR modules are
-    57600, the ESP32 console is 115200), so restoring that default would
-    reinstate a silent wrong-baud connection rather than a useful one.
-    They stay required pending Adam's call.
+    These differ ON PURPOSE and must not be unified (Adam, PR #14): HMTLConfig
+    and TailArduino drive the setup/test sketches, which all run
+    Serial.begin(9600) -- HMTLPythonConfig.ino:63, HMTL_Bringup.ino:65,
+    HMTL_Upgrade_Version.ino:35.  HMTLCommandServer talks to a running module
+    or an ESP32 console, hence 115200.
+
+    This branch briefly made --baud required on all three, which broke every
+    existing invocation.  This test exists so that cannot recur silently.
     """
     import subprocess
 
-    args = [sys.executable, os.path.join(_BIN, tool), "-d", _NOT_A_DEVICE]
-    if tool == "HMTLConfig":
-        args.append("-p")  # otherwise it exits on "Must specify mode" first
+    result = subprocess.run(
+        [sys.executable, os.path.join(_BIN, tool), "--help"],
+        capture_output=True, text=True,
+        env=dict(os.environ, PYTHONPATH=os.path.dirname(_BIN)))
 
-    result = subprocess.run(args, capture_output=True, text=True,
-                            env=dict(os.environ,
-                                     PYTHONPATH=os.path.dirname(_BIN)))
-
-    assert result.returncode != 0
-    assert "Must specify --baud" in result.stdout + result.stderr
+    assert result.returncode == 0
+    assert "[%d]" % expected in result.stdout, (
+        "%s should advertise %d as its default baud" % (tool, expected))
 
 
 def test_command_server_defaults_to_115200():

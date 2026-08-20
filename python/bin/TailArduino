@@ -18,9 +18,11 @@ def handle_args():
                         help="Arduino USB device")
 
     parser.add_argument("-b", "--baud", dest="baud", type=int,
-                        help="REQUIRED with --device: serial port baud "
-                             "(9600, 19200, 57600, 115200).  AVR HMTL modules "
-                             "are 57600; the ESP32 console is 115200.")
+                        help="Serial port baud ([9600], 19200, 57600, 115200).  "
+                             "The setup and test sketches this tool tails run "
+                             "Serial.begin(9600); pass 57600 for a running AVR "
+                             "module or 115200 for an ESP32 console.",
+                        default=9600)
     
     parser.add_argument("-t", "--timestamp", dest="timestamp",
                         action="store_true",
@@ -45,10 +47,6 @@ def handle_args():
             exit("Must specify device")
 
     # No default baud -- see SerialBuffer.__init__.
-    if options.device is not None and options.baud is None:
-        parser.print_help()
-        exit("Must specify --baud when connecting to a serial device "
-             "(AVR HMTL modules: 57600, ESP32 console: 115200)")
 
     return options
 
