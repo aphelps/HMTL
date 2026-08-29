@@ -38,6 +38,14 @@ def handle_args():
     parser.add_option("-s", "--devicescan", dest="devicescan", action="store_true",
                       help="Scan for devices in the background", default=False)
 
+    parser.add_option("-r", "--reset", dest="reset", action="store_true",
+                      help="Reset the device when opening the serial port "
+                           "(pulses DTR/RTS), so its boot 'ready' banner "
+                           "arrives after the server is listening.  Off by "
+                           "default: attaching must not restart a live "
+                           "device.  Serial devices only; ignored with -I.",
+                      default=False)
+
     (options, args) = parser.parse_args()
     print("options:" + str(options) + " args:" + str(args))
 
@@ -55,7 +63,8 @@ def main():
     handle_args()
 
     if options.device:
-        buff = SerialBuffer(options.device, options.baud)
+        buff = SerialBuffer(options.device, options.baud,
+                            reset_on_open=options.reset)
     elif options.ip:
         buff = SocketBuffer(options.ip, options.deviceport)
     else:
