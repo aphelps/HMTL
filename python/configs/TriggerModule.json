@@ -1,0 +1,57 @@
+{
+    "info": "TriggerModule: HMTL Trigger PCB r3 WITHOUT the optional rear pixel connector (unpopulated on these boards -- a configured-but-absent 50px chain made every received message trigger a blocking pixel rewrite that dropped back-to-back bus frames). Four solenoid/PWM value outputs, on-board RGB, RS485. Write with: HMTLConfig -f <this> -i <id> -a <addr> -w",
+    "header": {
+        "protocol_version": 3,
+        "hardware_version": 5,
+        "device_id": 0,
+        "address": 0,
+        "baud": 9600,
+        "flags": 0
+    },
+    "outputs": [
+        {
+            "type": "value",
+            "pin": 9,
+            "value": 0,
+            "info": "PWM output 1"
+        },
+        {
+            "type": "value",
+            "pin": 6,
+            "value": 0,
+            "info": "PWM Output 2"
+        },
+        {
+            "type": "value",
+            "pin": 5,
+            "value": 0,
+            "info": "PWM Output 3"
+        },
+        {
+            "type": "value",
+            "pin": 3,
+            "value": 0,
+            "info": "PWM Output 4"
+        },
+        {
+            "type": "rgb",
+            "pins": [
+                11,
+                10,
+                13
+            ],
+            "values": [
+                0,
+                0,
+                0
+            ],
+            "info": "On-board RGB LED"
+        },
+        {
+            "type": "rs485",
+            "recvpin": 4,
+            "xmitpin": 7,
+            "enablepin": 2
+        }
+    ]
+}
