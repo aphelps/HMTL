@@ -33,6 +33,15 @@ def handle_args():
                         action="store_true",
                         help="Resend stdin to the serial device", default=False)
 
+    parser.add_argument("-r", "--reset", dest="reset",
+                        action="store_true",
+                        help="Reset the device when opening the serial port "
+                             "(pulses DTR/RTS), so the boot banner is "
+                             "captured from the top.  Off by default: "
+                             "attaching must not restart a live device.  "
+                             "Serial devices only; ignored with -I.",
+                        default=False)
+
     parser.add_argument("-I", "--ip", dest="ip",
                         help="Connect to the indicated IP address")
     parser.add_argument("-P", "--port", dest="port", type=int, default=23,
@@ -56,7 +65,8 @@ def main():
     options = handle_args()
 
     if options.device is not None:
-        device = SerialBuffer(options.device, options.baud, verbose=False)
+        device = SerialBuffer(options.device, options.baud, verbose=False,
+                              reset_on_open=options.reset)
     elif options.ip is not None:
         device = SocketBuffer(options.ip, options.port, verbose=False)
     else:
